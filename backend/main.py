@@ -616,6 +616,26 @@ def admin_leaderboard(event_id: int, _=Depends(require_admin)):
     return _leaderboard_rows(event_id)
 
 
+@app.get("/api/admin/scores")
+def admin_scores(event_id: int, _=Depends(require_admin)):
+    """Every score for this event, joined with judge + project for visibility."""
+    rows = get_conn().execute(
+        """
+        SELECT s.id, s.judge_id, j.name AS judge_name,
+               s.project_id, p.title AS project_title, p.team_name, p.table_number,
+               s.innovation, s.technical, s.impact, s.presentation,
+               s.total_raw, s.total_weighted, s.notes, s.updated_at
+        FROM scores s
+        JOIN judges j ON j.id = s.judge_id
+        JOIN projects p ON p.id = s.project_id
+        WHERE p.event_id = ?
+        ORDER BY s.updated_at DESC
+        """,
+        (event_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/admin/export/scores")
 def admin_export_scores(event_id: int, _=Depends(require_admin_q)):
     rows = get_conn().execute(
