@@ -1,0 +1,155 @@
+import { useEffect, useMemo, useState } from 'react';
+import ProjectCard from './ProjectCard.jsx';
+import ScoringRubric from './ScoringRubric.jsx';
+import { saveScore, enqueueSync } from '../lib/db.js';
+import { flushQueue } from '../lib/sync.js';
+
+const WEIGHTS = { innovation: 0.25, technical: 0.25, impact: 0.25, presentation: 0.25 };
+
+export default function ScoringArea({ token, judgeId, project, indexLabel, onPrev, onNext, existingScore, onScored, allProjects, onJump }) {
+  const initial = existingScore || { innovation: 5, technical: 5, impact: 5, presentation: 5, notes: '' };
+  const [innovation, setInnovation] = useState(initial.innovation);
+  const [technical, setTechnical] = useState(initial.technical);
+  const [impact, setImpact] = useState(initial.impact);
+  const [presentation, setPresentation] = useState(initial.presentation);
+  const [notes, setNotes] = useState(initial.notes || '');
+  const [busy, setBusy] = useState(false);
+  const [savedFlag, setSavedFlag] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+
+  useEffect(() => {
+    setInnovation(existingScore?.innovation ?? 5);
+    setTechnical(existingScore?.technical ?? 5);
+    setImpact(existingScore?.impact ?? 5);
+    setPresentation(existingScore?.presentation ?? 5);
+    setNotes(existingScore?.notes ?? '');
+    setSavedFlag(false);
+  }, [project?.id]);
+
+  const raw = innovation + technical + impact + presentation;
+  const weighted = innovation * WEIGHTS.innovation + technical * WEIGHTS.technical + impact * WEIGHTS.impact + presentation * WEIGHTS.presentation;
+
+  async function saveAndNext() {
+    if (busy) return;
+    setBusy(true);
+    const body = { project_id: project.id, innovation, technical, impact, presentation, notes };
+    const optimistic = {
+      judge_id: judgeId,
+      project_id: project.id,
+      innovation, technical, impact, presentation,
+      total_raw: raw,
+      total_weighted: weighted,
+      notes,
+      updated_at: new Date().toISOString(),
+      sync_status: 'pending',
+    };
+    await saveScore(judgeId, optimistic);
+    onScored?.(optimistic);
+    await enqueueSync({ token, judgeId, body });
+    flushQueue();
+    setSavedFlag(true);
+    setBusy(false);
+    setTimeout(() => onNext?.(), 220);
+  }
+
+  const filteredHits = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    return allProjects
+      .filter((p) =>
+        (p.table_number || '').toLowerCase().includes(q) ||
+        (p.title || '').toLowerCase().includes(q) ||
+        (p.team_name || '').toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [search, allProjects]);
+
+  return (
+    <div className="flex flex-col min-h-full">
+      <div className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur border-b border-ink-300/60">
+        <div className="flex items-center gap-2 px-4 py-3">
+          <button
+            onClick={onPrev}
+            disabled={!onPrev}
+            className="touch-target rounded-lg px-3 text-sm font-medium hover:bg-slate-100 disabled:opacity-30"
+          >
+            ◀ Prev
+          </button>
+          <div className="flex-1 text-center min-w-0">
+            <div className="text-xs uppercase tracking-wider text-ink-500">Table</div>
+            <div className="text-3xl sm:text-4xl font-bold tracking-tight leading-none">{project.table_number || '—'}</div>
+            <div className="text-xs text-ink-500 mt-0.5">{indexLabel}</div>
+          </div>
+          <button
+            onClick={onNext}
+            className="touch-target rounded-lg px-3 text-sm font-medium hover:bg-slate-100"
+          >
+            Next ▶
+          </button>
+          <button
+            onClick={() => setShowSearch((v) => !v)}
+            className="touch-target rounded-lg px-2 hover:bg-slate-100"
+            aria-label="Search"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+        {showSearch && (
+          <div className="px-4 pb-3 relative">
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search table # or name"
+              className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-accent-500 outline-none"
+            />
+            {filteredHits.length > 0 && (
+              <ul className="absolute z-30 left-4 right-4 bg-white border border-ink-300 rounded-lg shadow-lg mt-1 max-h-72 overflow-y-auto scrollbar-thin">
+                {filteredHits.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      onClick={() => { onJump(p.id); setShowSearch(false); setSearch(''); }}
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50 text-sm flex items-center gap-2"
+                    >
+                      <span className="font-mono text-xs text-ink-500 w-12">{p.table_number || '—'}</span>
+                      <span className="truncate">{p.title}</span>
+                      <span className="ml-auto text-xs text-ink-500 truncate">{p.team_name || ''}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 px-4 py-5 max-w-3xl mx-auto w-full pb-32">
+        <ProjectCard project={project} />
+        <ScoringRubric
+          innovation={innovation} setInnovation={setInnovation}
+          technical={technical} setTechnical={setTechnical}
+          impact={impact} setImpact={setImpact}
+          presentation={presentation} setPresentation={setPresentation}
+          notes={notes} setNotes={setNotes}
+        />
+      </div>
+
+      <div className="fixed bottom-0 inset-x-0 z-20 border-t border-ink-300/60 bg-white safe-bottom">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="text-xs leading-tight text-ink-500 shrink-0">
+            <div>Raw: <span className="text-ink-900 font-medium">{raw.toFixed(1)}/40</span></div>
+            <div>Weighted: <span className="text-ink-900 font-medium">{weighted.toFixed(2)}/10</span></div>
+          </div>
+          <button
+            onClick={saveAndNext}
+            disabled={busy}
+            className="ml-auto flex-1 sm:flex-none sm:px-12 py-3 rounded-xl bg-accent-600 text-white font-semibold touch-target hover:bg-accent-500 disabled:opacity-60"
+          >
+            {busy ? 'Saving…' : (savedFlag ? 'Saved · Next' : (existingScore ? 'Update & Next' : 'Save & Next'))}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
