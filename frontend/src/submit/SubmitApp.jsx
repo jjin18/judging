@@ -79,32 +79,22 @@ export default function SubmitApp() {
   return (
     <div className="min-h-screen bg-slate-50 flex justify-center px-4 py-10">
       <div className="w-full max-w-lg">
-        <div className="text-center mb-6">
-          <div className="text-xs uppercase tracking-[0.2em] text-ink-500">Project Submission</div>
-          <h1 className="text-2xl font-semibold tracking-tight mt-1">{event.name}</h1>
-          {event.date && <div className="text-sm text-ink-500 mt-1">{event.date}{event.venue ? ` · ${event.venue}` : ''}</div>}
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight mt-1 mb-6 text-center">{event.name}</h1>
 
         {result ? (
           <Confirmation project={result} onAddAnother={reset} />
         ) : (
           <form onSubmit={submit} className="bg-white rounded-2xl border border-ink-300/60 p-6 space-y-4">
-            <Field label="Project name *" value={form.title} onChange={(v) => set('title', v)}
-              autoFocus required placeholder="e.g. Wayfinder" />
-            <Field
-              label="Devpost link *"
-              hint="Paste your Devpost project URL — judges click through to read about your build."
-              value={form.devpost_url}
-              onChange={(v) => set('devpost_url', v)}
-              type="url"
-              required
-              placeholder="https://devpost.com/software/your-project"
-            />
-            <Field label="Table number" hint="Where judges can find you in person." mono
-              value={form.table_number} onChange={(v) => set('table_number', v)} placeholder="14" />
-            <Field label="Team name" value={form.team_name} onChange={(v) => set('team_name', v)} placeholder="Team Wayfinder" />
-            <Field label="Track" hint="Optional — leave blank if you're not entering a specific track."
-              value={form.track} onChange={(v) => set('track', v)} placeholder="AI / Climate / Health" />
+            <Field label="Project name" value={form.title} onChange={(v) => set('title', v)}
+              autoFocus required placeholder="Wayfinder" />
+            <Field label="Devpost link" value={form.devpost_url} onChange={(v) => set('devpost_url', v)}
+              type="url" required placeholder="https://devpost.com/software/..." />
+            <Field label="Table number" mono value={form.table_number}
+              onChange={(v) => set('table_number', v)} placeholder="14" />
+            <Field label="Team name" value={form.team_name}
+              onChange={(v) => set('team_name', v)} placeholder="optional" />
+            <Field label="Track" value={form.track}
+              onChange={(v) => set('track', v)} placeholder="optional" />
 
             {err && <div className="text-sm text-red-600">{err}</div>}
 
@@ -113,27 +103,20 @@ export default function SubmitApp() {
               disabled={busy || !form.title.trim() || !form.devpost_url.trim()}
               className="w-full rounded-xl bg-ink-900 text-white py-3 font-medium hover:bg-ink-700 disabled:opacity-40 touch-target"
             >
-              {busy ? 'Registering…' : 'Register project'}
+              {busy ? 'Registering…' : 'Register'}
             </button>
-            <p className="text-xs text-ink-500 text-center">
-              You can resubmit anytime to update your table number or fix typos —
-              same Devpost link will overwrite your earlier entry.
-            </p>
           </form>
         )}
 
-        <div className="text-center mt-6">
-          <a href="/" className="text-xs text-ink-500 hover:text-accent-600">← Back to home</a>
-        </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, hint, value, onChange, type = 'text', placeholder, autoFocus, required, mono }) {
+function Field({ label, value, onChange, type = 'text', placeholder, autoFocus, required, mono }) {
   return (
     <label className="block text-sm">
-      <span className="text-ink-700 font-medium">{label}</span>
+      <span className="text-ink-700 font-medium">{label}{required ? ' *' : ''}</span>
       <input
         type={type}
         value={value}
@@ -143,7 +126,6 @@ function Field({ label, hint, value, onChange, type = 'text', placeholder, autoF
         required={required}
         className={`mt-1 w-full rounded-lg border border-ink-300 px-3 py-2.5 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/30 outline-none ${mono ? 'font-mono' : ''}`}
       />
-      {hint && <span className="block text-xs text-ink-500 mt-1">{hint}</span>}
     </label>
   );
 }
@@ -156,22 +138,19 @@ function Confirmation({ project, onAddAnother }) {
           <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-      <h2 className="text-lg font-semibold">You're registered for judging</h2>
+      <h2 className="text-lg font-semibold">Registered</h2>
       <div className="mt-4 text-left rounded-xl bg-slate-50 border border-ink-300/60 p-4 text-sm space-y-1">
-        <div><span className="text-ink-500">Project:</span> <b>{project.title}</b></div>
-        {project.team_name && <div><span className="text-ink-500">Team:</span> {project.team_name}</div>}
-        {project.table_number && <div><span className="text-ink-500">Table:</span> <span className="font-mono">{project.table_number}</span></div>}
-        {project.track && <div><span className="text-ink-500">Track:</span> {project.track}</div>}
-        <div className="truncate"><span className="text-ink-500">Devpost:</span> <a href={project.devpost_url} target="_blank" rel="noreferrer" className="text-accent-600 hover:underline">{project.devpost_url}</a></div>
+        <div><b>{project.title}</b></div>
+        {project.team_name && <div className="text-ink-500">{project.team_name}</div>}
+        {project.table_number && <div className="font-mono text-ink-500">Table {project.table_number}</div>}
+        <a href={project.devpost_url} target="_blank" rel="noreferrer"
+           className="block truncate text-accent-600 hover:underline pt-1">{project.devpost_url}</a>
       </div>
-      <p className="text-xs text-ink-500 mt-3">
-        Need to fix something? Resubmit with the same Devpost link.
-      </p>
       <button
         onClick={onAddAnother}
         className="mt-4 w-full rounded-xl border border-ink-300 px-5 py-2.5 text-sm hover:border-accent-500 touch-target"
       >
-        Edit / submit another
+        Submit another
       </button>
     </div>
   );
