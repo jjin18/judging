@@ -4,6 +4,7 @@ import EventSidebar from './EventSidebar.jsx';
 import SetupTab from './tabs/SetupTab.jsx';
 import ProjectsTab from './tabs/ProjectsTab.jsx';
 import JudgesTab from './tabs/JudgesTab.jsx';
+import ResultsTab from './tabs/ResultsTab.jsx';
 import BackHome from '../layout/BackHome.jsx';
 
 const LS_TOKEN = 'admin.token';
@@ -95,13 +96,18 @@ export default function AdminApp() {
                 <ExportLinks event={active} token={token} />
               </div>
               <nav className="mt-4 flex gap-1 -mx-1 overflow-x-auto scrollbar-thin">
-                {['setup','projects','judges'].map((t) => (
+                {[
+                  ['setup', 'Setup'],
+                  ['projects', 'Projects'],
+                  ['judges', 'Judges'],
+                  ['results', 'Results'],
+                ].map(([k, label]) => (
                   <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-slate-100'}`}
+                    key={k}
+                    onClick={() => setTab(k)}
+                    className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium ${tab === k ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-slate-100'}`}
                   >
-                    {t === 'setup' ? 'Setup' : t === 'projects' ? 'Projects' : 'Judges'}
+                    {label}
                   </button>
                 ))}
               </nav>
@@ -112,6 +118,7 @@ export default function AdminApp() {
               )}
               {tab === 'projects' && <ProjectsTab token={token} event={active} />}
               {tab === 'judges' && <JudgesTab token={token} event={active} />}
+              {tab === 'results' && <ResultsTab token={token} event={active} />}
             </div>
           </>
         )}
