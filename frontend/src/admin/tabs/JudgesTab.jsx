@@ -41,12 +41,10 @@ export default function JudgesTab({ token, event }) {
     });
   }
 
-  async function regenQr(j) {
-    if (!confirm(`Regenerate QR for ${j.name}? Old code will stop working when they re-auth.`)) return;
-    // The QR is a fresh token each call; regeneration just means re-printing this PNG.
-    // We invalidate the existing PIN by setting a new one.
-    const pin = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
-    await adminApi.updateJudge(token, j.id, { event_id: event.id, pin });
+  async function resetPin(j) {
+    if (!confirm(`Reset ${j.name}'s PIN to their normalized name?`)) return;
+    // Server normalizes; sending the raw name is fine.
+    await adminApi.updateJudge(token, j.id, { event_id: event.id, pin: j.name });
     refresh();
   }
 
@@ -96,7 +94,7 @@ export default function JudgesTab({ token, event }) {
                   <a href={adminApi.judgeQrUrl(token, j.id)} download={`qr_${j.name}.png`} className="text-accent-600 text-xs hover:underline">PNG</a>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => regenQr(j)} className="text-xs text-ink-500 hover:text-ink-900 mr-3">Regenerate</button>
+                  <button onClick={() => resetPin(j)} className="text-xs text-ink-500 hover:text-ink-900 mr-3">Reset PIN</button>
                   <button
                     onClick={async () => { if (confirm(`Remove ${j.name}?`)) { await adminApi.deleteJudge(token, j.id); refresh(); } }}
                     className="text-red-600 text-xs hover:underline"

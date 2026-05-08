@@ -22,7 +22,9 @@ from models import (
 from auth import (
     make_judge_token, make_admin_token, hash_token,
     verify_password, verify_pin, require_judge, require_admin, require_admin_q,
+    normalize_pin,
 )
+import scrape_devpost as scrape_devpost_module
 from scrape_devpost import scrape_event
 
 WEIGHTS = {"innovation": 0.25, "technical": 0.25, "impact": 0.25, "presentation": 0.25}
@@ -33,9 +35,31 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 async def lifespan(app: FastAPI):
     init_db()
     _maybe_auto_seed()
+    _maybe_migrate_pins_to_names()
     start_backup_scheduler()
     yield
     stop_backup_scheduler()
+
+
+def _maybe_migrate_pins_to_names() -> None:
+    """One-shot: rewrite all PINs to the normalized judge name.
+
+    Opt-in via MIGRATE_PINS_TO_NAMES=1 — for the deployed DB that still has
+    numeric PINs from earlier seed runs.
+    """
+    if os.environ.get("MIGRATE_PINS_TO_NAMES") != "1":
+        return
+    try:
+        conn = get_conn()
+        rows = conn.execute("SELECT id, name FROM judges").fetchall()
+        with tx() as c:
+            for r in rows:
+                pin = normalize_pin(r["name"])
+                if pin:
+                    c.execute("UPDATE judges SET pin = ? WHERE id = ?", (pin, r["id"]))
+        print(f"[boot] migrated {len(rows)} judge PINs to normalized names")
+    except Exception as e:
+        print(f"[boot] PIN migration skipped: {e}")
 
 
 def _maybe_auto_seed() -> None:
@@ -93,12 +117,21 @@ def judge_auth_pin(body: PinAuthIn):
     return _judge_bootstrap(judge["id"], token)
 
 
+_DEVPOST_CACHE: dict[int, float] = {}  # event_id -> last refresh ts
+_DEVPOST_TTL = 60
+
+
 def _judge_bootstrap(judge_id: int, token: str) -> dict:
     conn = get_conn()
     judge = conn.execute("SELECT * FROM judges WHERE id = ?", (judge_id,)).fetchone()
     if not judge:
         raise HTTPException(404, "judge not found")
     event = conn.execute("SELECT * FROM events WHERE id = ?", (judge["event_id"],)).fetchone()
+    if event:
+        try:
+            _refresh_projects_from_devpost(dict(event))
+        except Exception as e:
+            print(f"[devpost] refresh failed (using cached projects): {e}")
     projects = conn.execute(
         "SELECT * FROM projects WHERE event_id = ? ORDER BY CAST(table_number AS INTEGER), title",
         (judge["event_id"],),
@@ -111,6 +144,60 @@ def _judge_bootstrap(judge_id: int, token: str) -> dict:
         "projects": [dict(p) for p in projects],
         "scores": [dict(s) for s in scores],
     }
+
+
+def _refresh_projects_from_devpost(event: dict, force: bool = False) -> int:
+    """Fetch the event's Devpost gallery and upsert projects. Returns rows touched.
+
+    Cached for 60s per event. Synchronous with a short timeout — if Devpost is
+    slow or down, we silently fall back to whatever's already in the DB.
+    """
+    import time as _time
+    url = (event.get("devpost_url") or "").strip()
+    if not url:
+        return 0
+    eid = event["id"]
+    last = _DEVPOST_CACHE.get(eid, 0)
+    now = _time.time()
+    if not force and (now - last) < _DEVPOST_TTL:
+        return 0
+    _DEVPOST_CACHE[eid] = now  # set first so concurrent calls coalesce
+
+    import asyncio as _asyncio
+    items = _asyncio.run(scrape_devpost_module.scrape_to_list(url, limit=300))
+    if not items:
+        return 0
+    n = 0
+    with tx() as c:
+        for it in items:
+            durl = (it.get("devpost_url") or "").strip()
+            if not durl:
+                continue
+            title = it.get("title") or "Untitled"
+            team = it.get("team_name")
+            desc = it.get("description")
+            if c.kind == "pg":
+                c.execute(
+                    """INSERT INTO projects (event_id, title, team_name, description, devpost_url)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT (event_id, devpost_url) DO UPDATE SET
+                         title = EXCLUDED.title,
+                         team_name = EXCLUDED.team_name,
+                         description = EXCLUDED.description""",
+                    (eid, title, team, desc, durl),
+                )
+            else:
+                c.execute(
+                    """INSERT INTO projects (event_id, title, team_name, description, devpost_url)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT (event_id, devpost_url) DO UPDATE SET
+                         title = excluded.title,
+                         team_name = excluded.team_name,
+                         description = excluded.description""",
+                    (eid, title, team, desc, durl),
+                )
+            n += 1
+    return n
 
 
 @app.get("/api/judge/projects")
@@ -202,11 +289,11 @@ def admin_create_event(body: EventIn, _=Depends(require_admin)):
         eid = insert_returning_id(
             c,
             """INSERT INTO events (name, date, venue, city, org_name, org_address, org_website,
-                                   organizer_name, organizer_title, logo_path, hours_expected)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   organizer_name, organizer_title, logo_path, devpost_url, hours_expected)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (body.name, body.date, body.venue, body.city, body.org_name, body.org_address,
              body.org_website, body.organizer_name, body.organizer_title, body.logo_path,
-             body.hours_expected),
+             body.devpost_url, body.hours_expected),
         )
     row = get_conn().execute("SELECT * FROM events WHERE id = ?", (eid,)).fetchone()
     return dict(row)
@@ -333,14 +420,18 @@ def admin_list_judges(event_id: int, _=Depends(require_admin)):
     return [dict(r) for r in rows]
 
 
-def _gen_pin() -> str:
+def _default_pin_for(name: str) -> str:
+    """PINs are normalized names. Falls back to short random suffix on collision."""
     import secrets
-    return f"{secrets.randbelow(1_000_000):06d}"
+    base = normalize_pin(name)
+    if not base:
+        return f"judge{secrets.randbelow(10000):04d}"
+    return base
 
 
 @app.post("/api/admin/judges")
 def admin_create_judge(body: JudgeIn, _=Depends(require_admin)):
-    pin = body.pin or _gen_pin()
+    pin = normalize_pin(body.pin) if body.pin else _default_pin_for(body.name)
     with tx() as c:
         jid = insert_returning_id(
             c,
@@ -357,6 +448,8 @@ def admin_update_judge(judge_id: int, body: JudgeIn, _=Depends(require_admin)):
     fields.pop("event_id", None)
     if not fields:
         raise HTTPException(400, "nothing to update")
+    if "pin" in fields and fields["pin"]:
+        fields["pin"] = normalize_pin(fields["pin"])
     keys = ", ".join(f"{k} = ?" for k in fields)
     with tx() as c:
         c.execute(f"UPDATE judges SET {keys} WHERE id = ?", (*fields.values(), judge_id))
@@ -378,9 +471,10 @@ def admin_import_judges(body: JudgesImportIn, _=Depends(require_admin)):
     inserted = 0
     with tx() as c:
         for j in body.judges:
+            pin = normalize_pin(j.pin) if j.pin else _default_pin_for(j.name)
             c.execute(
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
-                (body.event_id, j.name, j.email, j.expertise, j.pin or _gen_pin()),
+                (body.event_id, j.name, j.email, j.expertise, pin),
             )
             inserted += 1
     return {"inserted": inserted}

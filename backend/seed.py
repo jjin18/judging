@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database import get_conn, init_db, tx, insert_returning_id
+from auth import normalize_pin
 
 
 def seed(wipe: bool = True):
@@ -30,23 +31,23 @@ def seed(wipe: bool = True):
         )
 
         judges = [
-            ("Jia Jin",      "jia@example.com",     "AI/ML",                "100001"),
-            ("Daniel Park",  "daniel@example.com",  "Backend Systems",      "100002"),
-            ("Asha Patel",   "asha@example.com",    "Product Design",       "100003"),
-            ("Marcus Chen",  "marcus@example.com",  "Distributed Systems",  "100004"),
-            ("Priya Iyer",   "priya@example.com",   "Mobile",               "100005"),
-            ("Liam O'Brien", "liam@example.com",    "Web3",                 "100006"),
-            ("Sofia Reyes",  "sofia@example.com",   "Computer Vision",      "100007"),
-            ("Hiro Tanaka",  "hiro@example.com",    "Robotics",             "100008"),
-            ("Nadia Volkov", "nadia@example.com",   "DevTools",             "100009"),
-            ("Eli Kim",      "eli@example.com",     "Security",             "100010"),
+            ("Jia Jin",      "jia@example.com",     "AI/ML"),
+            ("Daniel Park",  "daniel@example.com",  "Backend Systems"),
+            ("Asha Patel",   "asha@example.com",    "Product Design"),
+            ("Marcus Chen",  "marcus@example.com",  "Distributed Systems"),
+            ("Priya Iyer",   "priya@example.com",   "Mobile"),
+            ("Liam O'Brien", "liam@example.com",    "Web3"),
+            ("Sofia Reyes",  "sofia@example.com",   "Computer Vision"),
+            ("Hiro Tanaka",  "hiro@example.com",    "Robotics"),
+            ("Nadia Volkov", "nadia@example.com",   "DevTools"),
+            ("Eli Kim",      "eli@example.com",     "Security"),
         ]
         judge_ids = []
-        for n, e, x, pin in judges:
+        for n, e, x in judges:
             jid = insert_returning_id(
                 c,
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
-                (event_id, n, e, x, pin),
+                (event_id, n, e, x, normalize_pin(n)),
             )
             judge_ids.append(jid)
 
@@ -59,16 +60,17 @@ def seed(wipe: bool = True):
 
         project_ids = []
         for i in range(50):
-            title = f"{random.choice(adjectives)}{random.choice(nouns)}"
+            title = f"{random.choice(adjectives)}{random.choice(nouns)}-{i + 1:02d}"
             team = f"{random.choice(adjectives)} {random.choice(team_words)}"
             track = random.choice(tracks)
             table = f"{i + 1:02d}"
             desc = f"A {track.lower()} project that {random.choice(['analyzes', 'predicts', 'visualizes', 'automates', 'optimizes'])} {random.choice(['workflows', 'data streams', 'user behavior', 'energy use', 'health signals'])}."
+            slug = title.lower().replace(' ', '-')
             pid = insert_returning_id(
                 c,
                 """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (event_id, title, team, table, track, desc, f"https://example.devpost.com/{title.lower()}"),
+                (event_id, title, team, table, track, desc, f"https://example.devpost.com/{slug}"),
             )
             project_ids.append(pid)
 
@@ -88,15 +90,16 @@ def seed(wipe: bool = True):
                     (jid, pid, inn, tech, imp, pres, raw, weighted, ""),
                 )
 
-    print(f"\nSeeded event {event_id}: 10 judges, 50 projects.")
-    print("=" * 48)
-    print("  Dummy judge PINs — type any of these on /judge")
-    print("=" * 48)
+    print(f"\nSeeded event {event_id}: 10 judges, 50 placeholder projects.")
+    print("=" * 56)
+    print("  Dummy judge PINs — type the name on /judge (any case,")
+    print("  with or without spaces; accents and punctuation ignored).")
+    print("=" * 56)
     for j in get_conn().execute("SELECT name, pin FROM judges WHERE event_id = ?", (event_id,)):
         print(f"  {j['name']:18s}  PIN: {j['pin']}")
-    print("=" * 48)
+    print("=" * 56)
     print(f"  Admin password: {__import__('os').environ.get('ADMIN_PASSWORD', 'admin')}")
-    print("=" * 48)
+    print("=" * 56)
 
 
 if __name__ == "__main__":
