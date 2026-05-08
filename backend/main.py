@@ -45,9 +45,22 @@ async def lifespan(app: FastAPI):
     init_db()
     _maybe_auto_seed()
     _maybe_migrate_pins_to_names()
+    _rename_legacy_event()
     start_backup_scheduler()
     yield
     stop_backup_scheduler()
+
+
+def _rename_legacy_event() -> None:
+    """Idempotent: rename the seeded 'cmd-f 2025' event if it's still around."""
+    try:
+        with tx() as c:
+            c.execute(
+                "UPDATE events SET name = ? WHERE name = ?",
+                ("Hackathon May 9-10", "cmd-f 2025"),
+            )
+    except Exception as e:
+        print(f"[boot] event rename skipped: {e}")
 
 
 def _maybe_migrate_pins_to_names() -> None:
