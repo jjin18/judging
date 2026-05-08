@@ -22,15 +22,30 @@ export default function ProgressSection({ projects, scores, activeId, onPick, ju
           const active = p.id === activeId;
           return (
             <li key={p.id}>
-              <button
-                onClick={() => onPick(p.id)}
-                className={`w-full text-left px-2 py-2 rounded-lg flex items-center gap-2 text-sm touch-target
-                  ${active ? 'bg-accent-500/10 text-accent-600' : 'hover:bg-slate-100'}`}
+              <div
+                className={`w-full px-2 py-2 rounded-lg flex items-center gap-2 text-sm
+                  ${active ? 'bg-accent-500/10' : 'hover:bg-slate-100'}`}
               >
-                <span className={`shrink-0 w-2 h-2 rounded-full ${has ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                <span className="font-mono text-xs text-ink-500 w-10 shrink-0">{p.table_number || '—'}</span>
-                <span className="truncate">{p.title}</span>
-              </button>
+                <button
+                  onClick={() => onPick(p.id)}
+                  className="flex-1 min-w-0 text-left flex items-center gap-2 touch-target"
+                >
+                  <span className={`shrink-0 w-2 h-2 rounded-full ${has ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                  <span className={`truncate ${active ? 'text-accent-600 font-medium' : ''}`}>{p.title}</span>
+                </button>
+                {p.devpost_url && (
+                  <a
+                    href={p.devpost_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-xs text-ink-500 hover:text-accent-600 px-2 py-1 touch-target"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Open on Devpost"
+                  >
+                    Devpost ↗
+                  </a>
+                )}
+              </div>
             </li>
           );
         })}

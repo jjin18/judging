@@ -16,22 +16,34 @@ open http://localhost:5173/judge   # PIN login (any of the dummy PINs below)
 open http://localhost:5173/admin   # admin password (default: "admin")
 ```
 
-### Dummy PINs (after running `seed.py`)
+### Sign-in: PIN = the judge's name
 
-| Judge        | Expertise            | PIN      |
-|--------------|----------------------|----------|
-| Jia Jin      | AI/ML                | `100001` |
-| Daniel Park  | Backend Systems      | `100002` |
-| Asha Patel   | Product Design       | `100003` |
-| Marcus Chen  | Distributed Systems  | `100004` |
-| Priya Iyer   | Mobile               | `100005` |
-| Liam O'Brien | Web3                 | `100006` |
-| Sofia Reyes  | Computer Vision      | `100007` |
-| Hiro Tanaka  | Robotics             | `100008` |
-| Nadia Volkov | DevTools             | `100009` |
-| Eli Kim      | Security             | `100010` |
+A judge's PIN **is** their name, normalized (lowercase, no spaces, accents folded, punctuation stripped). Typing any of these gets Jia Jin in:
 
-If a PIN doesn't work: the database is empty (run `python backend/seed.py`) or you regenerated it through the admin UI (the "Regenerate" button replaces the PIN).
+- `Jia Jin` · `jia jin` · `jiajin` · `JIA JIN`
+
+Stored PIN for the dummy seed:
+
+| Judge        | PIN          |
+|--------------|--------------|
+| Jia Jin      | `jiajin`     |
+| Daniel Park  | `danielpark` |
+| Asha Patel   | `ashapatel`  |
+| Marcus Chen  | `marcuschen` |
+| Priya Iyer   | `priyaiyer`  |
+| Liam O'Brien | `liamobrien` |
+| Sofia Reyes  | `sofiareyes` |
+| Hiro Tanaka  | `hirotanaka` |
+| Nadia Volkov | `nadiavolkov`|
+| Eli Kim      | `elikim`     |
+
+If your deployed DB has older numeric PINs from a previous seed, set `MIGRATE_PINS_TO_NAMES=1` for one boot to rewrite all PINs to normalized names.
+
+### Projects: pulled live from Devpost
+
+Set the event's **Devpost gallery URL** in `/admin → Setup`. When a judge signs in, the server fetches the gallery and upserts projects into the DB (60s cache per event). If Devpost is slow or blocks the request, the previous snapshot is used so judges never get a hard failure.
+
+Each project on the dashboard shows its title and an "Open on Devpost" button — full description, demo videos, and team detail live on Devpost.
 
 Required env (defaults are dev-only):
 

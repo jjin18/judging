@@ -14,6 +14,7 @@ class EventIn(BaseModel):
     organizer_name: Optional[str] = None
     organizer_title: Optional[str] = None
     logo_path: Optional[str] = None
+    devpost_url: Optional[str] = None
     hours_expected: Optional[float] = 4
 
 

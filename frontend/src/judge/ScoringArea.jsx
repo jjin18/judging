@@ -76,9 +76,8 @@ export default function ScoringArea({ token, judgeId, project, indexLabel, onPre
           >
             ◀ Prev
           </button>
-          <div className="flex-1 text-center min-w-0">
-            <div className="text-xs uppercase tracking-wider text-ink-500">Table</div>
-            <div className="text-3xl sm:text-4xl font-bold tracking-tight leading-none">{project.table_number || '—'}</div>
+          <div className="flex-1 text-center min-w-0 px-2">
+            <div className="text-base sm:text-lg font-semibold tracking-tight truncate">{project.title}</div>
             <div className="text-xs text-ink-500 mt-0.5">{indexLabel}</div>
           </div>
           <button

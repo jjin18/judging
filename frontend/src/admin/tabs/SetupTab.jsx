@@ -12,6 +12,7 @@ const FIELDS = [
   { key: 'organizer_name', label: 'Organizer name' },
   { key: 'organizer_title', label: 'Organizer title' },
   { key: 'hours_expected', label: 'Expected hours', type: 'number' },
+  { key: 'devpost_url', label: 'Devpost gallery URL', placeholder: 'https://your-hackathon.devpost.com', wide: true },
 ];
 
 export default function SetupTab({ token, event, onSaved }) {
@@ -51,7 +52,7 @@ export default function SetupTab({ token, event, onSaved }) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {FIELDS.map((f) => (
-            <label key={f.key} className="block text-sm">
+            <label key={f.key} className={`block text-sm ${f.wide ? 'sm:col-span-2' : ''}`}>
               <span className="text-ink-700 font-medium">{f.label}</span>
               <input
                 type={f.type || 'text'}
@@ -60,6 +61,11 @@ export default function SetupTab({ token, event, onSaved }) {
                 placeholder={f.placeholder || ''}
                 className="mt-1 w-full rounded-lg border border-ink-300 px-3 py-2 focus:border-accent-500 outline-none"
               />
+              {f.key === 'devpost_url' && (
+                <span className="text-xs text-ink-500 mt-1 block">
+                  Pulled and refreshed (60s cache) every time a judge signs in.
+                </span>
+              )}
             </label>
           ))}
         </div>

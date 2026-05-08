@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS events (
     organizer_name TEXT,
     organizer_title TEXT,
     logo_path TEXT,
+    devpost_url TEXT,
     hours_expected REAL DEFAULT 4,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -201,6 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_judges_event ON judges(event_id);
 CREATE INDEX IF NOT EXISTS idx_projects_event ON projects(event_id);
 CREATE INDEX IF NOT EXISTS idx_scores_judge ON scores(judge_id);
 CREATE INDEX IF NOT EXISTS idx_scores_project ON scores(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_event_devpost
+    ON projects (event_id, devpost_url) WHERE devpost_url IS NOT NULL;
 """
 
 SCHEMA_PG = """
@@ -264,12 +267,36 @@ CREATE INDEX IF NOT EXISTS idx_judges_event ON judges(event_id);
 CREATE INDEX IF NOT EXISTS idx_projects_event ON projects(event_id);
 CREATE INDEX IF NOT EXISTS idx_scores_judge ON scores(judge_id);
 CREATE INDEX IF NOT EXISTS idx_scores_project ON scores(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_event_devpost
+    ON projects (event_id, devpost_url) WHERE devpost_url IS NOT NULL;
 """
 
 
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA_PG if USE_PG else SCHEMA_SQLITE)
+    # Idempotent migrations for already-deployed DBs that pre-date a column.
+    _ensure_column(conn, "events", "devpost_url", "TEXT")
+
+
+def _ensure_column(conn: Conn, table: str, column: str, decl: str) -> None:
+    """Add `column` to `table` if it doesn't exist. Works on both backends."""
+    try:
+        if conn.kind == "pg":
+            row = conn.execute(
+                """SELECT 1 FROM information_schema.columns
+                   WHERE table_name = ? AND column_name = ?""",
+                (table, column),
+            ).fetchone()
+            if not row:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        else:
+            cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            existing = {(c["name"] if isinstance(c, dict) else c[1]) for c in cols}
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except Exception as e:
+        print(f"[init_db] ensure_column {table}.{column} skipped: {e}")
 
 
 # ---------- SQLite-only file backup (no-op for Postgres) ----------

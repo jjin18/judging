@@ -2,6 +2,7 @@
 import os
 import hashlib
 import secrets
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -9,6 +10,20 @@ from fastapi import Depends, Header, HTTPException, status
 from jose import JWTError, jwt
 
 from database import get_conn
+
+
+def normalize_pin(s: str) -> str:
+    """Fold accents, lowercase, strip everything that isn't alphanumeric.
+
+    "Liam O'Brien" -> "liamobrien", "Renée Müller" -> "reneemuller".
+    Used for both the stored pin and the user's input, so case/space/accent
+    variations all match.
+    """
+    if not s:
+        return ""
+    folded = unicodedata.normalize("NFKD", s)
+    ascii_only = folded.encode("ascii", "ignore").decode("ascii")
+    return "".join(ch for ch in ascii_only if ch.isalnum()).lower()
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-please")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
@@ -92,19 +107,30 @@ def require_admin(authorization: Optional[str] = Header(None)) -> dict:
 
 
 def verify_pin(pin: str, event_id: Optional[int] = None) -> Optional[dict]:
+    """Look up a judge by PIN.
+
+    Match is loose: we normalize both the input and the stored pin (lowercase,
+    fold accents, strip non-alphanumeric). A judge typing 'jane doe',
+    'JaneDoe', or 'Jane Doe' all hits the same row.
+    """
     conn = get_conn()
-    if event_id is not None:
-        row = conn.execute(
-            "SELECT * FROM judges WHERE event_id = ? AND pin = ?", (event_id, pin)
-        ).fetchone()
-        return dict(row) if row else None
-    rows = conn.execute(
-        """SELECT j.* FROM judges j
-           JOIN events e ON e.id = j.event_id
-           WHERE j.pin = ?
-           ORDER BY e.created_at DESC, j.id DESC""",
-        (pin,),
-    ).fetchall()
-    if not rows:
+    norm = normalize_pin(pin)
+    if not norm:
         return None
-    return dict(rows[0])
+    if event_id is not None:
+        rows = conn.execute(
+            "SELECT * FROM judges WHERE event_id = ?", (event_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT j.* FROM judges j
+               JOIN events e ON e.id = j.event_id
+               ORDER BY e.created_at DESC, j.id DESC""",
+        ).fetchall()
+    for row in rows:
+        if normalize_pin(row["pin"]) == norm:
+            return dict(row)
+        # Fallback: tolerate name typed in directly even if stored pin was numeric
+        if normalize_pin(row["name"]) == norm:
+            return dict(row)
+    return None
