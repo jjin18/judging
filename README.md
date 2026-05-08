@@ -38,9 +38,14 @@ Required env (defaults are dev-only):
 ```
 ADMIN_PASSWORD=...   # organizer login
 JWT_SECRET=...       # signing secret for judge + admin tokens
-DB_PATH=./judging.db # SQLite path (default: repo root)
+DATABASE_URL=...     # Postgres URL (e.g. postgresql://user:pass@host:5432/db)
+                     # If unset, falls back to local SQLite at DB_PATH
+DB_PATH=./judging.db # SQLite path used only when DATABASE_URL is unset
 FRONTEND_BASE_URL=https://yourapp.com   # used in QR codes
+SKIP_AUTO_SEED=1     # disable the empty-DB auto-seed (default: enabled)
 ```
+
+On Railway, attach the Postgres plugin and the `DATABASE_URL` env var is set automatically. The app boots, sees an empty DB, and seeds the dummy event + PINs once.
 
 ## Production
 

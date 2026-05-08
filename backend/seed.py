@@ -6,19 +6,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from database import get_conn, init_db, tx
+from database import get_conn, init_db, tx, insert_returning_id
 
 
-def seed():
+def seed(wipe: bool = True):
     init_db()
-    conn = get_conn()
-    conn.execute("DELETE FROM scores")
-    conn.execute("DELETE FROM projects")
-    conn.execute("DELETE FROM judges")
-    conn.execute("DELETE FROM events")
+    if wipe:
+        with tx() as c:
+            c.execute("DELETE FROM scores")
+            c.execute("DELETE FROM projects")
+            c.execute("DELETE FROM judges")
+            c.execute("DELETE FROM events")
 
     with tx() as c:
-        cur = c.execute(
+        event_id = insert_returning_id(
+            c,
             """INSERT INTO events (name, date, venue, city, org_name, org_address, org_website,
                                    organizer_name, organizer_title, hours_expected)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -26,7 +28,6 @@ def seed():
              "Buildspace", "395 The Embarcadero, San Francisco, CA", "buildspace.so",
              "Daniel Liu", "Director of Programs", 5.0),
         )
-        event_id = cur.lastrowid
 
         judges = [
             ("Jia Jin",      "jia@example.com",     "AI/ML",                "100001"),
@@ -42,11 +43,12 @@ def seed():
         ]
         judge_ids = []
         for n, e, x, pin in judges:
-            cur = c.execute(
+            jid = insert_returning_id(
+                c,
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
                 (event_id, n, e, x, pin),
             )
-            judge_ids.append(cur.lastrowid)
+            judge_ids.append(jid)
 
         tracks = ["AI", "Web3", "Climate", "Health", "Education", "DevTools"]
         adjectives = ["Quantum", "Neural", "Hyper", "Adaptive", "Mesh", "Open", "Stellar",
@@ -62,12 +64,13 @@ def seed():
             track = random.choice(tracks)
             table = f"{i + 1:02d}"
             desc = f"A {track.lower()} project that {random.choice(['analyzes', 'predicts', 'visualizes', 'automates', 'optimizes'])} {random.choice(['workflows', 'data streams', 'user behavior', 'energy use', 'health signals'])}."
-            cur = c.execute(
+            pid = insert_returning_id(
+                c,
                 """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (event_id, title, team, table, track, desc, f"https://example.devpost.com/{title.lower()}"),
             )
-            project_ids.append(cur.lastrowid)
+            project_ids.append(pid)
 
         weights = (0.25, 0.25, 0.25, 0.25)
         for jid in judge_ids[:5]:

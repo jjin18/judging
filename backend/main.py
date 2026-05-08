@@ -14,7 +14,7 @@ from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import get_conn, init_db, start_backup_scheduler, stop_backup_scheduler, tx
+from database import get_conn, init_db, start_backup_scheduler, stop_backup_scheduler, tx, insert_returning_id
 from models import (
     EventIn, EventOut, JudgeIn, ProjectIn, ScoreIn,
     PinAuthIn, AdminAuthIn, ProjectsImportIn, JudgesImportIn, ScrapeIn,
@@ -32,9 +32,25 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _maybe_auto_seed()
     start_backup_scheduler()
     yield
     stop_backup_scheduler()
+
+
+def _maybe_auto_seed() -> None:
+    """If the DB is empty, populate dummy event/judges/projects/scores."""
+    if os.environ.get("SKIP_AUTO_SEED") == "1":
+        return
+    try:
+        row = get_conn().execute("SELECT COUNT(*) AS n FROM events").fetchone()
+        if row and (row["n"] if isinstance(row, dict) else row[0]) > 0:
+            return
+        from seed import seed as _seed  # local import to avoid circular at module load
+        print("[boot] empty DB detected — running seed.py for dummy data")
+        _seed(wipe=False)
+    except Exception as e:
+        print(f"[boot] auto-seed skipped: {e}")
 
 
 app = FastAPI(title="Hackathon Judging Platform", lifespan=lifespan)
@@ -139,7 +155,7 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
             """
             INSERT INTO scores (judge_id, project_id, innovation, technical, impact, presentation,
                                 total_raw, total_weighted, notes, sync_status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', CURRENT_TIMESTAMP)
             ON CONFLICT(judge_id, project_id) DO UPDATE SET
               innovation = excluded.innovation,
               technical  = excluded.technical,
@@ -148,7 +164,7 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
               total_raw  = excluded.total_raw,
               total_weighted = excluded.total_weighted,
               notes      = excluded.notes,
-              updated_at = datetime('now'),
+              updated_at = CURRENT_TIMESTAMP,
               sync_status = 'synced'
             """,
             (
@@ -182,9 +198,9 @@ def admin_events(_=Depends(require_admin)):
 
 @app.post("/api/admin/events", response_model=EventOut)
 def admin_create_event(body: EventIn, _=Depends(require_admin)):
-    conn = get_conn()
     with tx() as c:
-        cur = c.execute(
+        eid = insert_returning_id(
+            c,
             """INSERT INTO events (name, date, venue, city, org_name, org_address, org_website,
                                    organizer_name, organizer_title, logo_path, hours_expected)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -192,8 +208,7 @@ def admin_create_event(body: EventIn, _=Depends(require_admin)):
              body.org_website, body.organizer_name, body.organizer_title, body.logo_path,
              body.hours_expected),
         )
-        eid = cur.lastrowid
-    row = conn.execute("SELECT * FROM events WHERE id = ?", (eid,)).fetchone()
+    row = get_conn().execute("SELECT * FROM events WHERE id = ?", (eid,)).fetchone()
     return dict(row)
 
 
@@ -231,13 +246,13 @@ def admin_list_projects(event_id: int, _=Depends(require_admin)):
 @app.post("/api/admin/projects")
 def admin_create_project(body: ProjectIn, _=Depends(require_admin)):
     with tx() as c:
-        cur = c.execute(
+        pid = insert_returning_id(
+            c,
             """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (body.event_id, body.title, body.team_name, body.table_number, body.track,
              body.description, body.devpost_url),
         )
-        pid = cur.lastrowid
     row = get_conn().execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
     return dict(row)
 
@@ -327,11 +342,11 @@ def _gen_pin() -> str:
 def admin_create_judge(body: JudgeIn, _=Depends(require_admin)):
     pin = body.pin or _gen_pin()
     with tx() as c:
-        cur = c.execute(
+        jid = insert_returning_id(
+            c,
             "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
             (body.event_id, body.name, body.email, body.expertise, pin),
         )
-        jid = cur.lastrowid
     row = get_conn().execute("SELECT * FROM judges WHERE id = ?", (jid,)).fetchone()
     return dict(row)
 
