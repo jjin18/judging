@@ -20,6 +20,36 @@ def _webhook_url() -> str:
     return os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 
 
+class _KeepMethodRedirect(_request.HTTPRedirectHandler):
+    """Preserve the POST method + body across 302 redirects.
+
+    Python's default redirect handler converts POST→GET on 302/303 and drops
+    the body (per HTTP spec). Apps Script web apps redirect /exec → /echo
+    with a 302; the default behavior would leave doPost never called and the
+    GET fall through to doGet, which returns 200 but writes nothing. We
+    deliberately preserve method + body so doPost runs.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if code not in (301, 302, 303, 307, 308):
+            return None
+        new_headers = {
+            k: v for k, v in req.header_items()
+            if k.lower() not in ("host",)  # keep Content-Type + Content-Length
+        }
+        return _request.Request(
+            newurl,
+            data=req.data,
+            method=req.get_method(),
+            headers=new_headers,
+            origin_req_host=getattr(req, "origin_req_host", None) or req.host,
+            unverifiable=True,
+        )
+
+
+_OPENER = _request.build_opener(_KeepMethodRedirect())
+
+
 def _post(payload: dict) -> None:
     url = _webhook_url()
     if not url:
@@ -32,7 +62,7 @@ def _post(payload: dict) -> None:
             method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with _request.urlopen(req, timeout=5) as resp:
+        with _OPENER.open(req, timeout=5) as resp:
             if resp.status >= 300:
                 print(f"[sheets] non-2xx: {resp.status}")
     except (HTTPError, URLError, TimeoutError, OSError) as e:
@@ -97,7 +127,7 @@ def send_test() -> dict:
             url, data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with _request.urlopen(req, timeout=10) as resp:
+        with _OPENER.open(req, timeout=10) as resp:
             text = resp.read(2048).decode("utf-8", errors="replace")
             return {
                 "ok": 200 <= resp.status < 300,
