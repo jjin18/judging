@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import BackHome from '../layout/BackHome.jsx';
 
 export default function SubmitApp() {
   const [event, setEvent] = useState(null);
@@ -67,19 +68,23 @@ export default function SubmitApp() {
 
   if (!event) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6 text-center">
-        <div className="max-w-sm">
-          <h1 className="text-xl font-semibold">No event open for submissions</h1>
-          <p className="text-ink-500 text-sm mt-2">Check back once the organizer creates the event.</p>
+      <div className="min-h-screen bg-slate-50 px-6">
+        <div className="max-w-lg mx-auto pt-6"><BackHome /></div>
+        <div className="min-h-[60vh] flex items-center justify-center text-center">
+          <div>
+            <h1 className="text-xl font-semibold">No event open for submissions</h1>
+            <p className="text-ink-500 text-sm mt-2">Check back once the organizer creates the event.</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex justify-center px-4 py-10">
-      <div className="w-full max-w-lg">
-        <h1 className="text-2xl font-semibold tracking-tight mt-1 mb-6 text-center">{event.name}</h1>
+    <div className="min-h-screen bg-slate-50 px-4 py-6">
+      <div className="max-w-lg mx-auto">
+        <div className="mb-4"><BackHome /></div>
+        <h1 className="text-2xl font-semibold tracking-tight mb-6 text-center">{event.name}</h1>
 
         {result ? (
           <Confirmation project={result} onAddAnother={reset} />
