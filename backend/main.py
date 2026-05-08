@@ -329,6 +329,15 @@ def admin_auth(body: AdminAuthIn):
     return {"token": make_admin_token()}
 
 
+@app.post("/api/admin/test-sheets-backup")
+def admin_test_sheets(_=Depends(require_admin)):
+    """Send a synchronous test payload to the Apps Script webhook.
+
+    Use after configuring GOOGLE_SHEETS_WEBHOOK_URL to verify the round-trip.
+    """
+    return sheets_backup.send_test()
+
+
 # ---------- Admin: events ----------
 @app.get("/api/admin/events")
 def admin_events(_=Depends(require_admin)):

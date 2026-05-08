@@ -59,6 +59,7 @@ export default function AdminApp() {
       />
       <main className="flex-1 min-w-0 flex flex-col">
         {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-200">{error}</div>}
+        <BackupStatus token={token} />
         {!active ? (
           <div className="flex-1 flex items-center justify-center text-ink-500 text-sm">
             {loading ? 'Loading…' : 'Create your first event from the sidebar.'}
@@ -137,6 +138,61 @@ function Login({ onAuthed }) {
         </button>
       </form>
       </div>
+    </div>
+  );
+}
+
+
+function BackupStatus({ token }) {
+  const [health, setHealth] = useState(null);
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [hidden, setHidden] = useState(() => localStorage.getItem("admin.hideBackupBanner") === "1");
+
+  useEffect(() => {
+    adminApi.health().then(setHealth).catch(() => {});
+  }, []);
+
+  if (hidden || !health) return null;
+  const enabled = health.sheets_backup;
+
+  async function runTest() {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await adminApi.testSheets(token);
+      setTestResult(r);
+    } catch (e) {
+      setTestResult({ ok: false, error: e.message });
+    } finally { setTesting(false); }
+  }
+
+  return (
+    <div className={`text-sm px-4 py-2 border-b flex items-center gap-3 flex-wrap
+      ${enabled ? "bg-emerald-50 text-emerald-900 border-emerald-200" : "bg-amber-50 text-amber-900 border-amber-200"}`}>
+      <span className={`inline-block w-2 h-2 rounded-full ${enabled ? "bg-emerald-500" : "bg-amber-500"}`} />
+      <span>
+        DB: <b>{health.db}</b>
+        {" · "}
+        Sheets backup: <b>{enabled ? "enabled" : "not configured"}</b>
+      </span>
+      {enabled && (
+        <button onClick={runTest} disabled={testing}
+          className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs hover:bg-emerald-100 disabled:opacity-50">
+          {testing ? "Testing…" : "Test backup"}
+        </button>
+      )}
+      {testResult && (
+        <span className="text-xs">
+          {testResult.ok
+            ? `✓ webhook responded ${testResult.status} — check your Sheet for a row with kind="test"`
+            : `✗ ${testResult.error || `status ${testResult.status}`}`}
+        </span>
+      )}
+      <button
+        onClick={() => { setHidden(true); localStorage.setItem("admin.hideBackupBanner", "1"); }}
+        className="ml-auto text-xs opacity-60 hover:opacity-100"
+        aria-label="Hide"
+      >dismiss</button>
     </div>
   );
 }
