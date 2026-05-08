@@ -39,11 +39,24 @@ Stored PIN for the dummy seed:
 
 If your deployed DB has older numeric PINs from a previous seed, set `MIGRATE_PINS_TO_NAMES=1` for one boot to rewrite all PINs to normalized names.
 
-### Projects: pulled live from Devpost
+### Projects: submitted by teams
 
-Set the event's **Devpost gallery URL** in `/admin → Setup`. When a judge signs in, the server fetches the gallery and upserts projects into the DB (60s cache per event). If Devpost is slow or blocks the request, the previous snapshot is used so judges never get a hard failure.
+Three routes — one per audience:
 
-Each project on the dashboard shows its title and an "Open on Devpost" button — full description, demo videos, and team detail live on Devpost.
+```
+yourapp.com/submit  → public team submission form
+yourapp.com/judge   → judge dashboard (PIN/QR auth)
+yourapp.com/admin   → organizer workspace (password auth)
+```
+
+Devpost has no public API and blocks scrapers; instead, each team registers their own project at `/submit`:
+
+- **Project name** + **Devpost link** (required)
+- **Table number**, **Team name**, **Track** (optional)
+
+Resubmitting with the same Devpost link updates the existing entry — teams can fix typos or change their table number anytime.
+
+The judge dashboard shows submitted projects sorted by table number; each entry has an **Open on Devpost** button.
 
 Required env (defaults are dev-only):
 
