@@ -16,7 +16,7 @@ async function request(path, opts = {}) {
 }
 
 export const judgeApi = {
-  authPin: (event_id, pin) => request('/api/judge/auth/pin', { method: 'POST', body: JSON.stringify({ event_id, pin }) }),
+  authPin: (pin, event_id = null) => request('/api/judge/auth/pin', { method: 'POST', body: JSON.stringify({ pin, event_id }) }),
   authQr: (token) => request('/api/judge/auth/qr', { method: 'POST', body: JSON.stringify({ token }) }),
   projects: (token) => request('/api/judge/projects', { headers: { Authorization: `Bearer ${token}` } }),
   scores: (token) => request('/api/judge/scores', { headers: { Authorization: `Bearer ${token}` } }),

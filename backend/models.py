@@ -77,8 +77,8 @@ class ScoreOut(BaseModel):
 
 
 class PinAuthIn(BaseModel):
-    event_id: int
     pin: str
+    event_id: Optional[int] = None
 
 
 class AdminAuthIn(BaseModel):

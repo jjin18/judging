@@ -67,10 +67,13 @@ def judge_auth_qr(body: dict):
 
 @app.post("/api/judge/auth/pin")
 def judge_auth_pin(body: PinAuthIn):
-    judge = verify_pin(body.event_id, body.pin)
+    pin = (body.pin or "").strip()
+    if not pin:
+        raise HTTPException(400, "missing pin")
+    judge = verify_pin(pin, body.event_id)
     if not judge:
         raise HTTPException(401, "invalid pin")
-    token = make_judge_token(judge["id"], body.event_id)
+    token = make_judge_token(judge["id"], judge["event_id"])
     return _judge_bootstrap(judge["id"], token)
 
 

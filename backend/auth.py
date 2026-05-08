@@ -91,9 +91,20 @@ def require_admin(authorization: Optional[str] = Header(None)) -> dict:
     return payload
 
 
-def verify_pin(event_id: int, pin: str) -> Optional[dict]:
+def verify_pin(pin: str, event_id: Optional[int] = None) -> Optional[dict]:
     conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM judges WHERE event_id = ? AND pin = ?", (event_id, pin)
-    ).fetchone()
-    return dict(row) if row else None
+    if event_id is not None:
+        row = conn.execute(
+            "SELECT * FROM judges WHERE event_id = ? AND pin = ?", (event_id, pin)
+        ).fetchone()
+        return dict(row) if row else None
+    rows = conn.execute(
+        """SELECT j.* FROM judges j
+           JOIN events e ON e.id = j.event_id
+           WHERE j.pin = ?
+           ORDER BY e.created_at DESC, j.id DESC""",
+        (pin,),
+    ).fetchall()
+    if not rows:
+        return None
+    return dict(rows[0])

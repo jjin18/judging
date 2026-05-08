@@ -2,21 +2,20 @@ import { useState } from 'react';
 import { judgeApi } from '../lib/api.js';
 
 export default function LoginScreen({ onLoggedIn }) {
-  const [eventId, setEventId] = useState(localStorage.getItem('judge.eventHint') || '1');
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
   async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setErr('');
     try {
-      const boot = await judgeApi.authPin(Number(eventId), pin.trim());
-      localStorage.setItem('judge.eventHint', String(eventId));
+      const boot = await judgeApi.authPin(pin.trim());
       onLoggedIn(boot);
     } catch (e) {
-      setErr('Wrong PIN or event. Check with your organizer.');
+      setErr(e.status === 401 ? 'PIN not recognized. Check with your organizer.' : 'Sign-in failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -30,16 +29,8 @@ export default function LoginScreen({ onLoggedIn }) {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Judge sign-in</h1>
-          <p className="text-ink-500 text-sm mt-1">Scan your QR card or enter your 6-digit PIN.</p>
+          <p className="text-ink-500 text-sm mt-1">Scan your QR card, or enter your 6-digit PIN below.</p>
         </div>
-        <label className="block text-sm font-medium text-ink-700 mb-1">Event ID</label>
-        <input
-          inputMode="numeric"
-          value={eventId}
-          onChange={(e) => setEventId(e.target.value.replace(/\D/g, ''))}
-          className="w-full rounded-xl border border-ink-300 bg-white px-4 py-3 text-base mb-3 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/30 outline-none"
-          required
-        />
         <label className="block text-sm font-medium text-ink-700 mb-1">PIN</label>
         <input
           inputMode="numeric"
@@ -48,7 +39,7 @@ export default function LoginScreen({ onLoggedIn }) {
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
           placeholder="••••••"
-          className="w-full rounded-xl border border-ink-300 bg-white px-4 py-3 text-2xl tracking-[0.4em] text-center font-mono mb-4 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/30 outline-none"
+          className="w-full rounded-xl border border-ink-300 bg-white px-4 py-4 text-3xl tracking-[0.4em] text-center font-mono mb-4 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/30 outline-none"
           required
         />
         {err && <div className="text-sm text-red-600 mb-3">{err}</div>}
