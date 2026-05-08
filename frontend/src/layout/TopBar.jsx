@@ -41,9 +41,9 @@ export default function TopBar({ event, onMenu, rightSlot, leftSlot }) {
             {event?.date && <div className="text-xs text-ink-500 truncate">{event.date}{event.venue ? ` · ${event.venue}` : ''}</div>}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-ink-500">
-            <span className={`inline-block w-2 h-2 rounded-full ${badge.dot}`} />
+        <div className="flex items-center gap-3 shrink-0 text-xs text-ink-500">
+          <div className="inline-flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${badge.dot}`} />
             <span className="hidden sm:inline">{badge.label}</span>
           </div>
           {rightSlot}

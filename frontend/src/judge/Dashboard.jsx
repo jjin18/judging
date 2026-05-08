@@ -59,9 +59,9 @@ export default function Dashboard({ profile, initialProjects, initialScores, onL
         event={event}
         onMenu={() => setDrawerOpen(true)}
         rightSlot={
-          <div className="flex items-center gap-1">
-            <a href="/" className="text-xs text-ink-500 hover:text-ink-900 px-2 py-1 rounded touch-target">Home</a>
-            <button onClick={onLogout} className="text-xs text-ink-500 hover:text-ink-900 px-2 py-1 rounded touch-target">Sign out</button>
+          <div className="inline-flex items-center gap-3">
+            <a href="/" className="hover:text-ink-900">Home</a>
+            <button onClick={onLogout} className="hover:text-ink-900">Sign out</button>
           </div>
         }
       />
