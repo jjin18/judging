@@ -78,3 +78,36 @@ def mirror_submission(project_row: dict) -> None:
         "devpost_url": project_row.get("devpost_url"),
     }
     threading.Thread(target=_post, args=(payload,), daemon=True).start()
+
+
+def send_test() -> dict:
+    """Synchronous round-trip test. Returns a dict the admin UI can render."""
+    import time as _time
+    url = _webhook_url()
+    if not url:
+        return {"ok": False, "error": "GOOGLE_SHEETS_WEBHOOK_URL is not set"}
+    payload = {
+        "kind": "test",
+        "marker": "judging-platform-self-test",
+        "ts": _time.time(),
+    }
+    try:
+        body = json.dumps(payload).encode("utf-8")
+        req = _request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with _request.urlopen(req, timeout=10) as resp:
+            text = resp.read(2048).decode("utf-8", errors="replace")
+            return {
+                "ok": 200 <= resp.status < 300,
+                "status": resp.status,
+                "url": url,
+                "response": text[:500],
+            }
+    except HTTPError as e:
+        return {"ok": False, "status": e.code, "url": url, "error": str(e)}
+    except (URLError, TimeoutError, OSError) as e:
+        return {"ok": False, "url": url, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "url": url, "error": f"unexpected: {e}"}
