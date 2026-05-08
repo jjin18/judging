@@ -24,7 +24,7 @@ def seed(wipe: bool = True):
             """INSERT INTO events (name, date, venue, city, org_name, org_address, org_website,
                                    organizer_name, organizer_title, devpost_url, hours_expected)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("cmd-f 2025", "2025-03-08", "UBC", "Vancouver",
+            ("Hackathon May 9-10", "2026-05-09", "UBC", "Vancouver",
              "nwPlus", "University of British Columbia, Vancouver, BC", "nwplus.io",
              "nwPlus Director", "Director of Programs",
              "https://cmd-f-2025.devpost.com/", 6.0),
