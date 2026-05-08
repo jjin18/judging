@@ -26,6 +26,7 @@ from auth import (
     normalize_pin,
 )
 from scrape_devpost import scrape_event
+import sheets_backup
 
 WEIGHTS = {"innovation": 0.25, "technical": 0.25, "impact": 0.25, "presentation": 0.25}
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
@@ -33,6 +34,14 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import database as _db
+    backend = "postgres" if _db.USE_PG else "sqlite"
+    print(f"[boot] DB backend: {backend}")
+    if backend == "sqlite" and os.environ.get("RAILWAY_ENVIRONMENT"):
+        print("[boot] WARNING: running on Railway with SQLite — filesystem is "
+              "ephemeral. Attach a Postgres plugin and set DATABASE_URL.")
+    if os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip():
+        print("[boot] Google Sheets backup: enabled")
     init_db()
     _maybe_auto_seed()
     _maybe_migrate_pins_to_names()
@@ -90,7 +99,22 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    """Health check + DB backend visibility for deployment dashboards."""
+    import database as _db
+    backend = "postgres" if _db.USE_PG else "sqlite"
+    counts = {}
+    try:
+        for tbl in ("events", "judges", "projects", "scores"):
+            row = get_conn().execute(f"SELECT COUNT(*) AS n FROM {tbl}").fetchone()
+            counts[tbl] = row["n"] if isinstance(row, dict) else row[0]
+    except Exception as e:
+        counts = {"error": str(e)}
+    return {
+        "ok": True,
+        "db": backend,
+        "counts": counts,
+        "sheets_backup": bool(os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()),
+    }
 
 
 # ---------- Public team submission ----------
@@ -178,7 +202,9 @@ def team_submit(body: TeamSubmitIn):
             "SELECT * FROM projects WHERE event_id = ? AND devpost_url = ?",
             (eid, devpost),
         ).fetchone()
-    return {"ok": True, "project": dict(row)}
+    project = dict(row)
+    sheets_backup.mirror_submission(project)
+    return {"ok": True, "project": project}
 
 
 # ---------- Judge auth ----------
@@ -290,7 +316,9 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
             "SELECT * FROM scores WHERE judge_id = ? AND project_id = ?",
             (judge["id"], body.project_id),
         ).fetchone()
-    return dict(row)
+    score = dict(row)
+    sheets_backup.mirror_score(score, dict(judge), dict(project))
+    return score
 
 
 # ---------- Admin auth ----------

@@ -120,18 +120,8 @@ export default function Dashboard({ profile, initialProjects, initialScores, onL
 function EmptyState() {
   return (
     <div className="min-h-full flex items-center justify-center p-10">
-      <div className="text-center max-w-sm">
-        <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-200 flex items-center justify-center mb-4">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-500">
-            <rect x="3" y="4" width="18" height="16" rx="2"/>
-            <path d="M3 10h18M9 14h6" strokeLinecap="round"/>
-          </svg>
-        </div>
-        <h2 className="text-lg font-semibold">No projects yet</h2>
-        <p className="text-sm text-ink-500 mt-1">
-          Teams register their own projects at <a href="/submit" className="text-accent-600 hover:underline font-medium">/submit</a>.
-          Refresh once submissions open.
-        </p>
+      <div className="text-center text-sm text-ink-500">
+        No projects yet · teams register at <a href="/submit" className="text-accent-600 hover:underline font-medium">/submit</a>
       </div>
     </div>
   );

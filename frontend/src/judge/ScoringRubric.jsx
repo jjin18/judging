@@ -24,16 +24,13 @@ export default function ScoringRubric(props) {
       {CRITERIA.map((c) => (
         <Slider key={c.key} {...c} value={values[c.key]} onChange={setters[c.key]} />
       ))}
-      <div>
-        <label className="text-sm font-medium">Notes <span className="text-ink-500 font-normal">(optional, only you see these)</span></label>
-        <textarea
-          value={props.notes}
-          onChange={(e) => props.setNotes(e.target.value)}
-          placeholder="What stood out? What did you ask?"
-          rows={3}
-          className="mt-1 w-full rounded-xl border border-ink-300 px-3 py-2 text-sm focus:border-accent-500 outline-none resize-none"
-        />
-      </div>
+      <textarea
+        value={props.notes}
+        onChange={(e) => props.setNotes(e.target.value)}
+        placeholder="Private notes (optional)"
+        rows={2}
+        className="w-full rounded-xl border border-ink-300 px-3 py-2 text-sm focus:border-accent-500 outline-none resize-none"
+      />
     </div>
   );
 }
@@ -55,15 +52,12 @@ function Slider({ label, weight, lo, hi, value, onChange }) {
   return (
     <div className="rounded-2xl bg-white border border-ink-300/60 p-4">
       <div className="flex items-baseline justify-between mb-3">
-        <div>
-          <div className="font-medium">{label}</div>
-          <div className="text-xs text-ink-500">{weight}%</div>
-        </div>
+        <div className="font-medium">{label}</div>
         <input
           inputMode="decimal"
           value={value}
           onChange={inputType}
-          className="w-16 text-right rounded-lg border border-ink-300 px-2 py-1 text-2xl font-semibold tabular-nums focus:border-accent-500 outline-none"
+          className="w-14 text-right rounded-lg border border-ink-300 px-2 py-1 text-xl font-semibold tabular-nums focus:border-accent-500 outline-none"
         />
       </div>
       <input
@@ -76,9 +70,9 @@ function Slider({ label, weight, lo, hi, value, onChange }) {
         className="slider touch-target"
         style={{ '--pct': `${pct}%` }}
       />
-      <div className="flex justify-between text-[11px] text-ink-500 mt-1.5 font-mono">
-        <span>1 · {lo}</span>
-        <span>10 · {hi}</span>
+      <div className="flex justify-between text-[10px] text-ink-500 mt-1 font-mono">
+        <span>{lo}</span>
+        <span>{hi}</span>
       </div>
     </div>
   );
