@@ -18,13 +18,13 @@ from database import get_conn, init_db, start_backup_scheduler, stop_backup_sche
 from models import (
     EventIn, EventOut, JudgeIn, ProjectIn, ScoreIn,
     PinAuthIn, AdminAuthIn, ProjectsImportIn, JudgesImportIn, ScrapeIn,
+    TeamSubmitIn,
 )
 from auth import (
     make_judge_token, make_admin_token, hash_token,
     verify_password, verify_pin, require_judge, require_admin, require_admin_q,
     normalize_pin,
 )
-import scrape_devpost as scrape_devpost_module
 from scrape_devpost import scrape_event
 
 WEIGHTS = {"innovation": 0.25, "technical": 0.25, "impact": 0.25, "presentation": 0.25}
@@ -93,6 +93,94 @@ def health():
     return {"ok": True}
 
 
+# ---------- Public team submission ----------
+def _latest_event() -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM events ORDER BY created_at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+@app.get("/api/submit/event")
+def submit_event_info():
+    ev = _latest_event()
+    if not ev:
+        return {"event": None}
+    return {"event": {
+        "id": ev["id"],
+        "name": ev["name"],
+        "date": ev.get("date") if isinstance(ev, dict) else ev["date"],
+        "venue": ev.get("venue") if isinstance(ev, dict) else ev["venue"],
+        "devpost_url": ev.get("devpost_url") if isinstance(ev, dict) else ev["devpost_url"],
+    }}
+
+
+@app.post("/api/submit")
+def team_submit(body: TeamSubmitIn):
+    """A team member registers their project for judging.
+
+    Public, no auth. Idempotent on (event_id, devpost_url) — teams can resubmit
+    to update their table number or fix typos.
+    """
+    title = (body.title or "").strip()
+    devpost = (body.devpost_url or "").strip()
+    if not title:
+        raise HTTPException(400, "missing project title")
+    if not devpost:
+        raise HTTPException(400, "missing Devpost link")
+    if not (devpost.startswith("http://") or devpost.startswith("https://")):
+        raise HTTPException(400, "devpost link must start with http:// or https://")
+
+    if body.event_id is not None:
+        ev_row = get_conn().execute(
+            "SELECT * FROM events WHERE id = ?", (body.event_id,)
+        ).fetchone()
+        if not ev_row:
+            raise HTTPException(404, "event not found")
+        eid = body.event_id
+    else:
+        ev = _latest_event()
+        if not ev:
+            raise HTTPException(404, "no event open for submissions")
+        eid = ev["id"]
+
+    table = (body.table_number or "").strip() or None
+    team = (body.team_name or "").strip() or None
+    track = (body.track or "").strip() or None
+    desc = (body.description or "").strip() or None
+
+    with tx() as c:
+        if c.kind == "pg":
+            c.execute(
+                """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (event_id, devpost_url) WHERE devpost_url IS NOT NULL DO UPDATE SET
+                     title = EXCLUDED.title,
+                     team_name = EXCLUDED.team_name,
+                     table_number = EXCLUDED.table_number,
+                     track = EXCLUDED.track,
+                     description = EXCLUDED.description""",
+                (eid, title, team, table, track, desc, devpost),
+            )
+        else:
+            c.execute(
+                """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (event_id, devpost_url) WHERE devpost_url IS NOT NULL DO UPDATE SET
+                     title = excluded.title,
+                     team_name = excluded.team_name,
+                     table_number = excluded.table_number,
+                     track = excluded.track,
+                     description = excluded.description""",
+                (eid, title, team, table, track, desc, devpost),
+            )
+        row = c.execute(
+            "SELECT * FROM projects WHERE event_id = ? AND devpost_url = ?",
+            (eid, devpost),
+        ).fetchone()
+    return {"ok": True, "project": dict(row)}
+
+
 # ---------- Judge auth ----------
 @app.post("/api/judge/auth/qr")
 def judge_auth_qr(body: dict):
@@ -117,23 +205,15 @@ def judge_auth_pin(body: PinAuthIn):
     return _judge_bootstrap(judge["id"], token)
 
 
-_DEVPOST_CACHE: dict[int, float] = {}  # event_id -> last refresh ts
-_DEVPOST_TTL = 60
-
-
 def _judge_bootstrap(judge_id: int, token: str) -> dict:
     conn = get_conn()
     judge = conn.execute("SELECT * FROM judges WHERE id = ?", (judge_id,)).fetchone()
     if not judge:
         raise HTTPException(404, "judge not found")
     event = conn.execute("SELECT * FROM events WHERE id = ?", (judge["event_id"],)).fetchone()
-    if event:
-        try:
-            _refresh_projects_from_devpost(dict(event))
-        except Exception as e:
-            print(f"[devpost] refresh failed (using cached projects): {e}")
     projects = conn.execute(
-        "SELECT * FROM projects WHERE event_id = ? ORDER BY CAST(table_number AS INTEGER), title",
+        """SELECT * FROM projects WHERE event_id = ?
+           ORDER BY CAST(table_number AS INTEGER), title""",
         (judge["event_id"],),
     ).fetchall()
     scores = conn.execute("SELECT * FROM scores WHERE judge_id = ?", (judge_id,)).fetchall()
@@ -144,60 +224,6 @@ def _judge_bootstrap(judge_id: int, token: str) -> dict:
         "projects": [dict(p) for p in projects],
         "scores": [dict(s) for s in scores],
     }
-
-
-def _refresh_projects_from_devpost(event: dict, force: bool = False) -> int:
-    """Fetch the event's Devpost gallery and upsert projects. Returns rows touched.
-
-    Cached for 60s per event. Synchronous with a short timeout — if Devpost is
-    slow or down, we silently fall back to whatever's already in the DB.
-    """
-    import time as _time
-    url = (event.get("devpost_url") or "").strip()
-    if not url:
-        return 0
-    eid = event["id"]
-    last = _DEVPOST_CACHE.get(eid, 0)
-    now = _time.time()
-    if not force and (now - last) < _DEVPOST_TTL:
-        return 0
-    _DEVPOST_CACHE[eid] = now  # set first so concurrent calls coalesce
-
-    import asyncio as _asyncio
-    items = _asyncio.run(scrape_devpost_module.scrape_to_list(url, limit=300))
-    if not items:
-        return 0
-    n = 0
-    with tx() as c:
-        for it in items:
-            durl = (it.get("devpost_url") or "").strip()
-            if not durl:
-                continue
-            title = it.get("title") or "Untitled"
-            team = it.get("team_name")
-            desc = it.get("description")
-            if c.kind == "pg":
-                c.execute(
-                    """INSERT INTO projects (event_id, title, team_name, description, devpost_url)
-                       VALUES (?, ?, ?, ?, ?)
-                       ON CONFLICT (event_id, devpost_url) DO UPDATE SET
-                         title = EXCLUDED.title,
-                         team_name = EXCLUDED.team_name,
-                         description = EXCLUDED.description""",
-                    (eid, title, team, desc, durl),
-                )
-            else:
-                c.execute(
-                    """INSERT INTO projects (event_id, title, team_name, description, devpost_url)
-                       VALUES (?, ?, ?, ?, ?)
-                       ON CONFLICT (event_id, devpost_url) DO UPDATE SET
-                         title = excluded.title,
-                         team_name = excluded.team_name,
-                         description = excluded.description""",
-                    (eid, title, team, desc, durl),
-                )
-            n += 1
-    return n
 
 
 @app.get("/api/judge/projects")

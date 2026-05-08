@@ -99,3 +99,13 @@ class JudgesImportIn(BaseModel):
 class ScrapeIn(BaseModel):
     event_id: int
     devpost_url: str
+
+
+class TeamSubmitIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    devpost_url: str = Field(min_length=1)
+    table_number: Optional[str] = None
+    team_name: Optional[str] = None
+    track: Optional[str] = None
+    description: Optional[str] = None
+    event_id: Optional[int] = None  # optional; defaults to most recent event

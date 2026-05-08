@@ -6,7 +6,7 @@ import { flushQueue } from '../lib/sync.js';
 
 const WEIGHTS = { innovation: 0.25, technical: 0.25, impact: 0.25, presentation: 0.25 };
 
-export default function ScoringArea({ token, judgeId, project, indexLabel, onPrev, onNext, existingScore, onScored, allProjects, onJump }) {
+export default function ScoringArea({ token, judgeId, project, indexLabel, onPrev, onNext, onBack, existingScore, onScored, allProjects, onJump }) {
   const initial = existingScore || { innovation: 5, technical: 5, impact: 5, presentation: 5, notes: '' };
   const [innovation, setInnovation] = useState(initial.innovation);
   const [technical, setTechnical] = useState(initial.technical);
@@ -68,11 +68,22 @@ export default function ScoringArea({ token, judgeId, project, indexLabel, onPre
   return (
     <div className="flex flex-col min-h-full">
       <div className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur border-b border-ink-300/60">
-        <div className="flex items-center gap-2 px-4 py-3">
+        <div className="flex items-center gap-1 px-3 py-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden touch-target rounded-lg px-2 text-sm font-medium hover:bg-slate-100 text-ink-700"
+              aria-label="Back to project list"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
           <button
             onClick={onPrev}
             disabled={!onPrev}
-            className="touch-target rounded-lg px-3 text-sm font-medium hover:bg-slate-100 disabled:opacity-30"
+            className="touch-target rounded-lg px-2 sm:px-3 text-sm font-medium hover:bg-slate-100 disabled:opacity-30"
           >
             ◀ Prev
           </button>
