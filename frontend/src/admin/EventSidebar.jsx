@@ -25,9 +25,10 @@ export default function EventSidebar({ events, activeId, onSelect, onCreate, onL
           </button>
         ))}
       </nav>
-      <button onClick={onLogout} className="m-3 mt-0 text-xs text-ink-500 hover:text-ink-900 px-3 py-2 text-left rounded">
-        Sign out
-      </button>
+      <div className="m-3 mt-0 flex items-center justify-between text-xs text-ink-500">
+        <a href="/" className="hover:text-accent-600 px-3 py-2 rounded">← Home</a>
+        <button onClick={onLogout} className="hover:text-ink-900 px-3 py-2 rounded">Sign out</button>
+      </div>
     </aside>
   );
 }

@@ -4,6 +4,7 @@ import EventSidebar from './EventSidebar.jsx';
 import SetupTab from './tabs/SetupTab.jsx';
 import ProjectsTab from './tabs/ProjectsTab.jsx';
 import JudgesTab from './tabs/JudgesTab.jsx';
+import BackHome from '../layout/BackHome.jsx';
 
 const LS_TOKEN = 'admin.token';
 
@@ -117,7 +118,9 @@ function Login({ onAuthed }) {
     } finally { setBusy(false); }
   }
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
+    <div className="min-h-screen bg-slate-50 px-6">
+      <div className="max-w-sm mx-auto pt-6"><BackHome /></div>
+      <div className="min-h-[80vh] flex items-center justify-center">
       <form onSubmit={submit} className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold tracking-tight">Organizer sign-in</h1>
         <p className="text-ink-500 text-sm mt-1 mb-6">Enter the admin password.</p>
@@ -133,6 +136,7 @@ function Login({ onAuthed }) {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      </div>
     </div>
   );
 }

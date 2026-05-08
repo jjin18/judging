@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { judgeApi } from '../lib/api.js';
+import BackHome from '../layout/BackHome.jsx';
 
 export default function LoginScreen({ onLoggedIn }) {
   const [name, setName] = useState('');
@@ -22,7 +23,9 @@ export default function LoginScreen({ onLoggedIn }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
+    <div className="min-h-screen bg-slate-50 px-6">
+      <div className="max-w-sm mx-auto pt-6"><BackHome /></div>
+      <div className="min-h-[80vh] flex items-center justify-center">
       <form onSubmit={submit} className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold tracking-tight text-center mb-6">Judge sign-in</h1>
         <input
@@ -45,6 +48,7 @@ export default function LoginScreen({ onLoggedIn }) {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      </div>
     </div>
   );
 }
