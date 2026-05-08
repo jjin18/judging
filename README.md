@@ -12,9 +12,26 @@ yourapp.com/admin   → Organizer workspace (password auth)
 ```bash
 ./start.sh                         # backend :8000 + frontend :5173
 python backend/seed.py             # 1 event, 10 judges, 50 projects, sample scores
-open http://localhost:5173/judge   # PIN login (event id 1, see seed output)
+open http://localhost:5173/judge   # PIN login (any of the dummy PINs below)
 open http://localhost:5173/admin   # admin password (default: "admin")
 ```
+
+### Dummy PINs (after running `seed.py`)
+
+| Judge        | Expertise            | PIN      |
+|--------------|----------------------|----------|
+| Jia Jin      | AI/ML                | `100001` |
+| Daniel Park  | Backend Systems      | `100002` |
+| Asha Patel   | Product Design       | `100003` |
+| Marcus Chen  | Distributed Systems  | `100004` |
+| Priya Iyer   | Mobile               | `100005` |
+| Liam O'Brien | Web3                 | `100006` |
+| Sofia Reyes  | Computer Vision      | `100007` |
+| Hiro Tanaka  | Robotics             | `100008` |
+| Nadia Volkov | DevTools             | `100009` |
+| Eli Kim      | Security             | `100010` |
+
+If a PIN doesn't work: the database is empty (run `python backend/seed.py`) or you regenerated it through the admin UI (the "Regenerate" button replaces the PIN).
 
 Required env (defaults are dev-only):
 

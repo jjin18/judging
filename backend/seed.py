@@ -29,20 +29,19 @@ def seed():
         event_id = cur.lastrowid
 
         judges = [
-            ("Jia Jin", "jia@example.com", "AI/ML"),
-            ("Daniel Park", "daniel@example.com", "Backend Systems"),
-            ("Asha Patel", "asha@example.com", "Product Design"),
-            ("Marcus Chen", "marcus@example.com", "Distributed Systems"),
-            ("Priya Iyer", "priya@example.com", "Mobile"),
-            ("Liam O'Brien", "liam@example.com", "Web3"),
-            ("Sofia Reyes", "sofia@example.com", "Computer Vision"),
-            ("Hiro Tanaka", "hiro@example.com", "Robotics"),
-            ("Nadia Volkov", "nadia@example.com", "DevTools"),
-            ("Eli Kim", "eli@example.com", "Security"),
+            ("Jia Jin",      "jia@example.com",     "AI/ML",                "100001"),
+            ("Daniel Park",  "daniel@example.com",  "Backend Systems",      "100002"),
+            ("Asha Patel",   "asha@example.com",    "Product Design",       "100003"),
+            ("Marcus Chen",  "marcus@example.com",  "Distributed Systems",  "100004"),
+            ("Priya Iyer",   "priya@example.com",   "Mobile",               "100005"),
+            ("Liam O'Brien", "liam@example.com",    "Web3",                 "100006"),
+            ("Sofia Reyes",  "sofia@example.com",   "Computer Vision",      "100007"),
+            ("Hiro Tanaka",  "hiro@example.com",    "Robotics",             "100008"),
+            ("Nadia Volkov", "nadia@example.com",   "DevTools",             "100009"),
+            ("Eli Kim",      "eli@example.com",     "Security",             "100010"),
         ]
         judge_ids = []
-        for n, e, x in judges:
-            pin = f"{secrets.randbelow(1_000_000):06d}"
+        for n, e, x, pin in judges:
             cur = c.execute(
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
                 (event_id, n, e, x, pin),
@@ -86,11 +85,15 @@ def seed():
                     (jid, pid, inn, tech, imp, pres, raw, weighted, ""),
                 )
 
-    print(f"Seeded event {event_id}: 10 judges, 50 projects.")
-    print("Judges (name, pin):")
+    print(f"\nSeeded event {event_id}: 10 judges, 50 projects.")
+    print("=" * 48)
+    print("  Dummy judge PINs — type any of these on /judge")
+    print("=" * 48)
     for j in get_conn().execute("SELECT name, pin FROM judges WHERE event_id = ?", (event_id,)):
-        print(f"  {j['name']:20s}  {j['pin']}")
-    print(f"\nAdmin password: {__import__('os').environ.get('ADMIN_PASSWORD', 'admin')}")
+        print(f"  {j['name']:18s}  PIN: {j['pin']}")
+    print("=" * 48)
+    print(f"  Admin password: {__import__('os').environ.get('ADMIN_PASSWORD', 'admin')}")
+    print("=" * 48)
 
 
 if __name__ == "__main__":
