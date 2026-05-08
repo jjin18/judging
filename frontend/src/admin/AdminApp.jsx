@@ -15,6 +15,7 @@ export default function AdminApp() {
   const [tab, setTab] = useState('setup');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -42,55 +43,70 @@ export default function AdminApp() {
     else if (!rows.find((e) => e.id === activeId)) setActiveId(rows[0]?.id ?? null);
   }
 
+  const sidebar = (
+    <EventSidebar
+      events={events}
+      activeId={activeId}
+      onSelect={(id) => { setActiveId(id); setDrawerOpen(false); }}
+      onCreate={async () => {
+        const name = prompt('Event name?');
+        if (!name) return;
+        const ev = await adminApi.createEvent(token, { name });
+        await refreshEvents(ev.id);
+        setTab('setup');
+        setDrawerOpen(false);
+      }}
+      onLogout={() => { localStorage.removeItem(LS_TOKEN); setToken(''); }}
+    />
+  );
+
   return (
-    <div className="min-h-screen flex bg-slate-50">
-      <EventSidebar
-        events={events}
-        activeId={activeId}
-        onSelect={setActiveId}
-        onCreate={async () => {
-          const name = prompt('Event name?');
-          if (!name) return;
-          const ev = await adminApi.createEvent(token, { name });
-          await refreshEvents(ev.id);
-          setTab('setup');
-        }}
-        onLogout={() => { localStorage.removeItem(LS_TOKEN); setToken(''); }}
-      />
+    <div className="min-h-screen md:flex bg-slate-50">
+      <aside className="hidden md:flex md:w-64 shrink-0">{sidebar}</aside>
+      {drawerOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setDrawerOpen(false)}>
+          <div className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white shadow-xl flex" onClick={(e) => e.stopPropagation()}>
+            {sidebar}
+          </div>
+        </div>
+      )}
       <main className="flex-1 min-w-0 flex flex-col">
         {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-200">{error}</div>}
         <BackupStatus token={token} />
         {!active ? (
-          <div className="flex-1 flex items-center justify-center text-ink-500 text-sm">
-            {loading ? 'Loading…' : 'Create your first event from the sidebar.'}
-          </div>
+          <>
+            <MobileBar active={null} onMenu={() => setDrawerOpen(true)} />
+            <div className="flex-1 flex items-center justify-center text-ink-500 text-sm p-6 text-center">
+              {loading ? 'Loading…' : 'Create your first event from the sidebar.'}
+            </div>
+          </>
         ) : (
           <>
-            <header className="bg-white border-b border-ink-300/60 px-6 py-4">
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <h1 className="text-xl font-semibold tracking-tight">{active.name}</h1>
+            <MobileBar active={active} onMenu={() => setDrawerOpen(true)} />
+            <header className="bg-white border-b border-ink-300/60 px-4 sm:px-6 py-4">
+              <div className="hidden md:flex items-baseline justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <h1 className="text-xl font-semibold tracking-tight truncate">{active.name}</h1>
                   <div className="text-sm text-ink-500">Event #{active.id}{active.date ? ` · ${active.date}` : ''}</div>
                 </div>
-                <div className="text-xs text-ink-500">
-                  <a className="hover:text-accent-600 mr-3" href={`/api/admin/export/scores?event_id=${active.id}&token=${encodeURIComponent(token)}`} target="_blank" rel="noreferrer">Export scores CSV</a>
-                  <a className="hover:text-accent-600 mr-3" href={`/api/admin/export/leaderboard?event_id=${active.id}&token=${encodeURIComponent(token)}`} target="_blank" rel="noreferrer">Leaderboard CSV</a>
-                  <a className="hover:text-accent-600" href={`/api/admin/export/luma?event_id=${active.id}&top=10&token=${encodeURIComponent(token)}`} target="_blank" rel="noreferrer">Luma top 10 CSV</a>
-                </div>
+                <ExportLinks event={active} token={token} />
               </div>
-              <nav className="mt-4 flex gap-1">
+              <div className="md:hidden">
+                <ExportLinks event={active} token={token} />
+              </div>
+              <nav className="mt-4 flex gap-1 -mx-1 overflow-x-auto scrollbar-thin">
                 {['setup','projects','judges'].map((t) => (
                   <button
                     key={t}
                     onClick={() => setTab(t)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-slate-100'}`}
+                    className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-slate-100'}`}
                   >
                     {t === 'setup' ? 'Setup' : t === 'projects' ? 'Projects' : 'Judges'}
                   </button>
                 ))}
               </nav>
             </header>
-            <div className="flex-1 min-h-0 overflow-y-auto p-6">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
               {tab === 'setup' && (
                 <SetupTab token={token} event={active} onSaved={(ev) => refreshEvents(ev.id)} />
               )}
@@ -100,6 +116,43 @@ export default function AdminApp() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function MobileBar({ active, onMenu }) {
+  return (
+    <div className="md:hidden flex items-center gap-2 bg-white border-b border-ink-300/60 px-3 py-2">
+      <button
+        onClick={onMenu}
+        className="touch-target rounded-lg hover:bg-slate-100 px-2"
+        aria-label="Menu"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round"/>
+        </svg>
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-sm truncate">{active ? active.name : 'Admin'}</div>
+        {active?.date && <div className="text-xs text-ink-500 truncate">{active.date}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ExportLinks({ event, token }) {
+  const t = encodeURIComponent(token);
+  const links = [
+    { label: 'Scores CSV', href: `/api/admin/export/scores?event_id=${event.id}&token=${t}` },
+    { label: 'Leaderboard CSV', href: `/api/admin/export/leaderboard?event_id=${event.id}&token=${t}` },
+    { label: 'Luma top 10 CSV', href: `/api/admin/export/luma?event_id=${event.id}&top=10&token=${t}` },
+  ];
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
+      {links.map((l) => (
+        <a key={l.label} href={l.href} target="_blank" rel="noreferrer"
+           className="hover:text-accent-600">{l.label}</a>
+      ))}
     </div>
   );
 }
@@ -167,24 +220,24 @@ function BackupStatus({ token }) {
   }
 
   return (
-    <div className={`text-sm px-4 py-2 border-b flex items-center gap-3 flex-wrap
+    <div className={`text-xs sm:text-sm px-3 sm:px-4 py-2 border-b flex items-center gap-2 sm:gap-3 flex-wrap
       ${enabled ? "bg-emerald-50 text-emerald-900 border-emerald-200" : "bg-amber-50 text-amber-900 border-amber-200"}`}>
-      <span className={`inline-block w-2 h-2 rounded-full ${enabled ? "bg-emerald-500" : "bg-amber-500"}`} />
-      <span>
+      <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${enabled ? "bg-emerald-500" : "bg-amber-500"}`} />
+      <span className="min-w-0">
         DB: <b>{health.db}</b>
         {" · "}
-        Sheets backup: <b>{enabled ? "enabled" : "not configured"}</b>
+        Sheets: <b>{enabled ? "enabled" : "not configured"}</b>
       </span>
       {enabled && (
         <button onClick={runTest} disabled={testing}
           className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs hover:bg-emerald-100 disabled:opacity-50">
-          {testing ? "Testing…" : "Test backup"}
+          {testing ? "Testing…" : "Test"}
         </button>
       )}
       {testResult && (
-        <span className="text-xs">
+        <span className="text-xs basis-full sm:basis-auto">
           {testResult.ok
-            ? `✓ webhook responded ${testResult.status} — check your Sheet for a row with kind="test"`
+            ? `✓ ${testResult.status} — check Sheet for kind="test"`
             : `✗ ${testResult.error || `status ${testResult.status}`}`}
         </span>
       )}

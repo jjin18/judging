@@ -160,7 +160,7 @@ function ScrapeImport({ token, event, onDone, setBusy, setError }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -200,7 +200,34 @@ function ProjectsTable({ projects, onPatch, onDelete }) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      {/* Mobile: stacked cards */}
+      <ul className="md:hidden divide-y divide-ink-300/60">
+        {sorted.length === 0 && (
+          <li className="text-center py-8 text-ink-500 text-sm">No projects yet.</li>
+        )}
+        {sorted.map((p, i) => (
+          <li key={p.id} className="px-4 py-3 flex items-start gap-3">
+            <div className="font-mono text-xs text-ink-500 w-12 shrink-0 pt-0.5">
+              {p.table_number ? `#${p.table_number}` : '—'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium truncate">{p.title}</div>
+              <div className="text-xs text-ink-500 truncate">
+                {p.team_name || '—'}{p.track ? ` · ${p.track}` : ''}
+              </div>
+              {p.devpost_url && (
+                <a href={p.devpost_url} target="_blank" rel="noreferrer"
+                   className="text-xs text-accent-600 hover:underline truncate block">{p.devpost_url}</a>
+              )}
+            </div>
+            <button onClick={() => onDelete(p.id)} className="text-red-600 text-xs hover:underline shrink-0">Remove</button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-xs uppercase tracking-wider text-ink-500 bg-slate-50 border-b border-ink-300/60">
@@ -234,6 +261,7 @@ function ProjectsTable({ projects, onPatch, onDelete }) {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

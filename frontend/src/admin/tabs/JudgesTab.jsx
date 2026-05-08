@@ -50,29 +50,56 @@ export default function JudgesTab({ token, event }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-ink-300/60 p-5 flex flex-wrap gap-3 items-center">
+      <div className="bg-white rounded-2xl border border-ink-300/60 p-4 sm:p-5 flex flex-wrap gap-3 items-center">
         <button onClick={addJudge} className="rounded-xl bg-ink-900 text-white px-4 py-2 text-sm hover:bg-ink-700">+ Add judge</button>
-        <label className="text-sm text-ink-700 inline-flex items-center gap-2">
-          <span>Bulk CSV:</span>
+        <label className="text-sm text-ink-700 inline-flex items-center gap-2 min-w-0">
+          <span className="shrink-0">CSV:</span>
           <input
             type="file"
             accept=".csv"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsv(f); e.target.value = ''; }}
-            className="text-sm"
+            className="text-sm min-w-0 max-w-[180px]"
           />
         </label>
         <a
           href={adminApi.qrZipUrl(token, event.id)}
-          className="ml-auto text-sm rounded-xl border border-ink-300 px-4 py-2 hover:border-accent-500"
+          className="sm:ml-auto text-sm rounded-xl border border-ink-300 px-4 py-2 hover:border-accent-500"
           download
         >
-          Download all QR codes (ZIP)
+          QR codes (ZIP)
         </a>
         {error && <div className="basis-full text-sm text-red-600">{error}</div>}
       </div>
 
       <div className="bg-white rounded-2xl border border-ink-300/60 overflow-hidden">
-        <table className="w-full text-sm">
+        {/* Mobile: stacked cards */}
+        <ul className="md:hidden divide-y divide-ink-300/60">
+          {judges.length === 0 && (
+            <li className="text-center py-8 text-ink-500 text-sm">No judges yet — add one or import CSV.</li>
+          )}
+          {judges.map((j) => (
+            <li key={j.id} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{j.name}</div>
+                  <div className="text-xs text-ink-500 truncate">{j.expertise || '—'}{j.email ? ` · ${j.email}` : ''}</div>
+                  <div className="text-xs text-ink-500 mt-1 font-mono">PIN: {j.pin}</div>
+                </div>
+                <div className="text-xs flex flex-col items-end gap-1 shrink-0">
+                  <button onClick={() => setPreviewQr(j)} className="text-accent-600 hover:underline">QR</button>
+                  <button onClick={() => resetPin(j)} className="text-ink-500 hover:text-ink-900">Reset</button>
+                  <button
+                    onClick={async () => { if (confirm(`Remove ${j.name}?`)) { await adminApi.deleteJudge(token, j.id); refresh(); } }}
+                    className="text-red-600 hover:underline"
+                  >Remove</button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {/* Desktop: table */}
+        <table className="hidden md:table w-full text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wider text-ink-500 bg-slate-50 border-b border-ink-300/60">
               <th className="text-left px-4 py-2">Name</th>
