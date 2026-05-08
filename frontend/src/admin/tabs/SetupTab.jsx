@@ -45,7 +45,7 @@ export default function SetupTab({ token, event, onSaved }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <form onSubmit={save} className="bg-white rounded-2xl border border-ink-300/60 p-6 space-y-4">
+      <form onSubmit={save} className="bg-white rounded-2xl border border-ink-300/60 p-4 sm:p-6 space-y-4">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-semibold">Event details</h2>
           <div className="text-xs text-ink-500">{savedAt ? 'Saved' : ''}</div>
@@ -75,7 +75,7 @@ export default function SetupTab({ token, event, onSaved }) {
         </button>
       </form>
 
-      <div className="bg-white rounded-2xl border border-ink-300/60 p-6">
+      <div className="hidden lg:block bg-white rounded-2xl border border-ink-300/60 p-6">
         <h2 className="text-lg font-semibold mb-3">Letter preview</h2>
         <div className="rounded-xl border border-ink-300/60 bg-slate-50 p-5 text-[13px] leading-6 font-serif">
           <div className="flex items-start justify-between gap-3 pb-2 border-b border-ink-300/60">

@@ -1,6 +1,6 @@
 export default function EventSidebar({ events, activeId, onSelect, onCreate, onLogout }) {
   return (
-    <aside className="w-64 shrink-0 bg-white border-r border-ink-300/60 flex flex-col">
+    <aside className="w-full bg-white border-r border-ink-300/60 flex flex-col safe-bottom">
       <div className="p-4 border-b border-ink-300/60">
         <div className="text-xs uppercase tracking-wider text-ink-500 mb-2">Organizer</div>
         <div className="font-semibold tracking-tight">Workspace</div>
