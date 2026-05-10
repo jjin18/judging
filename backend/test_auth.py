@@ -41,16 +41,25 @@ def app_with_seed(monkeypatch, tmp_path):
     import sheets_backup  # noqa: E402
     importlib.reload(sheets_backup)
 
-    calls: dict[str, list] = {"mirror_score": [], "sync_all": []}
+    calls: dict = {"mirror_score": [], "mirror_score_sync": [], "sync_all": [], "sheets_succeeds": True}
     monkeypatch.setattr(
         sheets_backup, "mirror_score",
         lambda s, j, p: calls["mirror_score"].append((s, j, p)),
     )
+
+    def _fake_sync(s, j, p):
+        calls["mirror_score_sync"].append((s, j, p))
+        return calls["sheets_succeeds"]
+    monkeypatch.setattr(sheets_backup, "mirror_score_sync", _fake_sync)
     monkeypatch.setattr(
         sheets_backup, "sync_all",
         lambda rows: (calls["sync_all"].append(list(rows)) or {"ok": True, "appended": len(calls["sync_all"][-1]), "updated": 0, "rows": len(calls["sync_all"][-1])}),
     )
     monkeypatch.setattr(sheets_backup, "is_configured", lambda: True)
+    monkeypatch.setattr(sheets_backup, "last_status", lambda: {
+        "configured": True, "tab": "scores", "sheet_url": "https://docs.google.com/spreadsheets/d/fake",
+        "last_success_ts": None, "last_error": None,
+    })
 
     import main  # noqa: E402
     importlib.reload(main)
@@ -239,14 +248,14 @@ def test_admin_password_collision_with_judge_pin_is_rejected(monkeypatch, tmp_pa
     assert r.status_code == 401
 
 
-def test_score_submit_invokes_sheets_mirror(app_with_seed):
+def test_score_submit_calls_sync_mirror_and_marks_submitted(app_with_seed):
+    """Happy path: DB write + Sheets sync both succeed → row is 'submitted'."""
     client, calls, database = app_with_seed
     jid, pin = _judge_pin(database)
     jt = _judge_token(client, pin)
     event_id = database.get_conn().execute(
         "SELECT event_id FROM judges WHERE id = ?", (jid,),
     ).fetchone()["event_id"]
-    # Insert a project to score.
     with database.tx() as c:
         pid = database.insert_returning_id(
             c, "INSERT INTO projects (event_id, title) VALUES (?, ?)",
@@ -260,11 +269,85 @@ def test_score_submit_invokes_sheets_mirror(app_with_seed):
     r = client.post("/api/judge/scores", json=body,
                     headers={"Authorization": f"Bearer {jt}"})
     assert r.status_code == 200
-    assert calls["mirror_score"], "expected sheets_backup.mirror_score to be called"
-    score, judge, project = calls["mirror_score"][-1]
+    assert calls["mirror_score_sync"], "expected mirror_score_sync to be called"
+    score, judge, project = calls["mirror_score_sync"][-1]
     assert judge["id"] == jid
     assert project["id"] == pid
     assert score["total_weighted"] == pytest.approx(7.5)
+    assert r.json()["sync_status"] == "submitted"
+    # And the DB persists that status.
+    row = database.get_conn().execute(
+        "SELECT sync_status FROM scores WHERE judge_id = ? AND project_id = ?",
+        (jid, pid),
+    ).fetchone()
+    assert row["sync_status"] == "submitted"
+
+
+def test_score_submit_when_sheets_fails_keeps_row_pending(app_with_seed):
+    """If Sheets returns False, the DB row is saved but stays 'pending_sync'."""
+    client, calls, database = app_with_seed
+    calls["sheets_succeeds"] = False
+    jid, pin = _judge_pin(database)
+    jt = _judge_token(client, pin)
+    event_id = database.get_conn().execute(
+        "SELECT event_id FROM judges WHERE id = ?", (jid,),
+    ).fetchone()["event_id"]
+    with database.tx() as c:
+        pid = database.insert_returning_id(
+            c, "INSERT INTO projects (event_id, title) VALUES (?, ?)",
+            (event_id, "Sheets Down"),
+        )
+    r = client.post("/api/judge/scores",
+                    headers={"Authorization": f"Bearer {jt}"},
+                    json={"project_id": pid, "innovation": 5, "technical": 5,
+                          "impact": 5, "presentation": 5})
+    assert r.status_code == 200
+    assert r.json()["sync_status"] == "pending_sync"
+    row = database.get_conn().execute(
+        "SELECT sync_status FROM scores WHERE judge_id = ? AND project_id = ?",
+        (jid, pid),
+    ).fetchone()
+    assert row["sync_status"] == "pending_sync"
+
+    # Now Sheets recovers; admin clicks "Retry now" → row flips to submitted.
+    calls["sheets_succeeds"] = True
+    at = _admin_token(client)
+    r = client.post("/api/admin/sync-pending", headers={"Authorization": f"Bearer {at}"})
+    assert r.status_code == 200
+    assert r.json()["succeeded"] >= 1
+    row = database.get_conn().execute(
+        "SELECT sync_status FROM scores WHERE judge_id = ? AND project_id = ?",
+        (jid, pid),
+    ).fetchone()
+    assert row["sync_status"] == "submitted"
+
+
+def test_pin_rate_limit_per_ip(app_with_seed):
+    """11th wrong-PIN attempt within 60s from the same IP gets a 429."""
+    client, _calls, database = app_with_seed
+    # Reset the rate-limit bucket so prior tests don't poison this one.
+    import main as _main
+    _main._PIN_ATTEMPTS.clear()
+    last = None
+    for _ in range(10):
+        last = client.post("/api/judge/auth/pin", json={"pin": "000000"})
+        assert last.status_code in (401, 429)
+    assert last.status_code == 401  # 10 attempts allowed
+    blocked = client.post("/api/judge/auth/pin", json={"pin": "000000"})
+    assert blocked.status_code == 429
+
+
+def test_admin_backup_status(app_with_seed):
+    """Backup-status endpoint returns the live Sheet link and pending count."""
+    client, _calls, database = app_with_seed
+    at = _admin_token(client)
+    r = client.get("/api/admin/backup-status", headers={"Authorization": f"Bearer {at}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is True
+    assert body["sheet_url"] == "https://docs.google.com/spreadsheets/d/fake"
+    assert "pending_count" in body
+    assert "total_scores" in body
 
 
 def test_score_resubmit_upserts_in_place(app_with_seed):

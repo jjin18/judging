@@ -5,6 +5,7 @@ import SetupTab from './tabs/SetupTab.jsx';
 import ProjectsTab from './tabs/ProjectsTab.jsx';
 import JudgesTab from './tabs/JudgesTab.jsx';
 import ResultsTab from './tabs/ResultsTab.jsx';
+import BackupTab from './tabs/BackupTab.jsx';
 import BackHome from '../layout/BackHome.jsx';
 
 export default function AdminApp() {
@@ -101,6 +102,7 @@ export default function AdminApp() {
                   ['projects', 'Projects'],
                   ['judges', 'Judges'],
                   ['results', 'Results'],
+                  ['backup', 'Backup'],
                 ].map(([k, label]) => (
                   <button
                     key={k}
@@ -119,6 +121,7 @@ export default function AdminApp() {
               {tab === 'projects' && <ProjectsTab token={token} event={active} />}
               {tab === 'judges' && <JudgesTab token={token} event={active} />}
               {tab === 'results' && <ResultsTab token={token} event={active} />}
+              {tab === 'backup' && <BackupTab token={token} />}
             </div>
           </>
         )}

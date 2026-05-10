@@ -32,16 +32,26 @@ def seed(wipe: bool = True):
         )
 
         judges = [
-            ("Jia Jin",      "jia@example.com",     "AI/ML"),
-            ("Daniel Park",  "daniel@example.com",  "Backend Systems"),
-            ("Asha Patel",   "asha@example.com",    "Product Design"),
-            ("Marcus Chen",  "marcus@example.com",  "Distributed Systems"),
-            ("Priya Iyer",   "priya@example.com",   "Mobile"),
-            ("Liam O'Brien", "liam@example.com",    "Web3"),
-            ("Sofia Reyes",  "sofia@example.com",   "Computer Vision"),
-            ("Hiro Tanaka",  "hiro@example.com",    "Robotics"),
-            ("Nadia Volkov", "nadia@example.com",   "DevTools"),
-            ("Eli Kim",      "eli@example.com",     "Security"),
+            ("Jia Jin",        "jia@example.com",      "AI/ML"),
+            ("Daniel Park",    "daniel@example.com",   "Backend Systems"),
+            ("Asha Patel",     "asha@example.com",     "Product Design"),
+            ("Marcus Chen",    "marcus@example.com",   "Distributed Systems"),
+            ("Priya Iyer",     "priya@example.com",    "Mobile"),
+            ("Liam O'Brien",   "liam@example.com",     "Web3"),
+            ("Sofia Reyes",    "sofia@example.com",    "Computer Vision"),
+            ("Hiro Tanaka",    "hiro@example.com",     "Robotics"),
+            ("Nadia Volkov",   "nadia@example.com",    "DevTools"),
+            ("Eli Kim",        "eli@example.com",      "Security"),
+            ("Maya Singh",     "maya@example.com",     "Embedded"),
+            ("Theo Laurent",   "theo@example.com",     "Graphics"),
+            ("Riya Shah",      "riya@example.com",     "NLP"),
+            ("Owen Becker",    "owen@example.com",     "Cloud Infra"),
+            ("Aiko Sato",      "aiko@example.com",     "Data Engineering"),
+            ("Felix Romero",   "felix@example.com",    "Hardware"),
+            ("Zara Bhatt",     "zara@example.com",     "Accessibility"),
+            ("Noah Wright",    "noah@example.com",     "Game Dev"),
+            ("Linnea Holm",    "linnea@example.com",   "ML Infra"),
+            ("Kenji Watanabe", "kenji@example.com",    "Computer Architecture"),
         ]
         for n, e, x in judges:
             pin = generate_pin(used_pins)

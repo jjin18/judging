@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import qrcode
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +47,9 @@ async def lifespan(app: FastAPI):
     _migrate_legacy_pins_to_random()
     _rename_legacy_event()
     start_backup_scheduler()
+    _start_pending_sync_retry_loop()
     yield
+    _stop_pending_sync_retry_loop()
     stop_backup_scheduler()
 
 
@@ -97,6 +99,86 @@ def _maybe_auto_seed() -> None:
         _seed(wipe=False)
     except Exception as e:
         print(f"[boot] auto-seed skipped: {e}")
+
+
+# ---------- Pending-sync retry (Sheets) ----------
+import threading
+import time as _time
+
+_retry_stop = threading.Event()
+_retry_thread: threading.Thread | None = None
+
+
+def _pending_sync_rows(limit: int = 100) -> list[dict]:
+    rows = get_conn().execute(
+        """
+        SELECT s.judge_id, s.project_id,
+               s.innovation, s.technical, s.impact, s.presentation,
+               s.total_weighted, s.notes, s.updated_at,
+               p.title AS project_title, p.team_name, p.event_id
+        FROM scores s
+        JOIN projects p ON p.id = s.project_id
+        WHERE s.sync_status = 'pending_sync'
+        ORDER BY s.updated_at
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _retry_pending_once() -> dict:
+    """One pass over pending_sync rows. Returns counts for the admin UI."""
+    if not sheets_backup.is_configured():
+        return {"attempted": 0, "succeeded": 0, "still_pending": 0, "skipped_unconfigured": True}
+    rows = _pending_sync_rows()
+    succeeded = 0
+    for r in rows:
+        score = {
+            "innovation": r["innovation"], "technical": r["technical"],
+            "impact": r["impact"], "presentation": r["presentation"],
+            "total_weighted": r["total_weighted"], "notes": r["notes"] or "",
+            "updated_at": r["updated_at"],
+        }
+        judge = {"id": r["judge_id"]}
+        project = {"id": r["project_id"], "title": r["project_title"], "team_name": r["team_name"]}
+        if sheets_backup.mirror_score_sync(score, judge, project):
+            _mark_score_submitted(r["judge_id"], r["project_id"])
+            succeeded += 1
+    pending_remaining = get_conn().execute(
+        "SELECT COUNT(*) AS n FROM scores WHERE sync_status = 'pending_sync'"
+    ).fetchone()
+    n = pending_remaining["n"] if isinstance(pending_remaining, dict) else pending_remaining[0]
+    return {"attempted": len(rows), "succeeded": succeeded, "still_pending": n}
+
+
+def _retry_loop() -> None:
+    """Sweeps pending_sync rows every 30s with simple backoff on consecutive failures."""
+    backoff = 30
+    while not _retry_stop.is_set():
+        try:
+            res = _retry_pending_once()
+            if res.get("attempted") and res["succeeded"] == 0:
+                backoff = min(300, backoff * 2)  # cap at 5 minutes
+            else:
+                backoff = 30
+        except Exception as e:
+            print(f"[sheets-retry] loop error: {e}")
+            backoff = min(300, backoff * 2)
+        _retry_stop.wait(backoff)
+
+
+def _start_pending_sync_retry_loop() -> None:
+    global _retry_thread
+    if _retry_thread and _retry_thread.is_alive():
+        return
+    _retry_stop.clear()
+    _retry_thread = threading.Thread(target=_retry_loop, daemon=True)
+    _retry_thread.start()
+
+
+def _stop_pending_sync_retry_loop() -> None:
+    _retry_stop.set()
 
 
 app = FastAPI(title="Hackathon Judging Platform", lifespan=lifespan)
@@ -232,8 +314,39 @@ def judge_auth_qr(body: dict):
     return _judge_bootstrap(judge_id, token)
 
 
+_PIN_ATTEMPTS: dict[str, list[float]] = {}
+_PIN_RATE_LIMIT = 10           # max attempts
+_PIN_RATE_WINDOW_SEC = 60.0    # ...per this window, per IP
+
+
+def _client_ip(request) -> str:
+    # Honor X-Forwarded-For when running behind Railway/Cloudflare; first IP
+    # in the chain is the original client.
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_pin_rate_limit(ip: str) -> None:
+    import time as _t
+    now = _t.monotonic()
+    window_start = now - _PIN_RATE_WINDOW_SEC
+    bucket = [t for t in _PIN_ATTEMPTS.get(ip, []) if t >= window_start]
+    if len(bucket) >= _PIN_RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"too many attempts; wait a minute before trying again",
+        )
+    bucket.append(now)
+    _PIN_ATTEMPTS[ip] = bucket
+
+
 @app.post("/api/judge/auth/pin")
-def judge_auth_pin(body: PinAuthIn):
+def judge_auth_pin(body: PinAuthIn, request: Request):
+    """PIN-only judge login. Rate-limited per IP (10 attempts / 60s) so the
+    6-digit space can't be brute-forced during the event."""
+    _check_pin_rate_limit(_client_ip(request))
     pin = (body.pin or "").strip()
     if not pin:
         raise HTTPException(400, "missing pin")
@@ -293,8 +406,36 @@ def _compute_totals(s: ScoreIn) -> tuple[float, float]:
     return raw, weighted
 
 
+def _mark_score_submitted(judge_id: int, project_id: int) -> None:
+    """Flip sync_status to 'submitted' once Sheets has confirmed the row."""
+    with tx() as c:
+        c.execute(
+            "UPDATE scores SET sync_status = 'submitted' WHERE judge_id = ? AND project_id = ?",
+            (judge_id, project_id),
+        )
+
+
+def _try_mirror_to_sheets(score: dict, judge: dict, project: dict) -> bool:
+    """Synchronously push a single score to Sheets. Returns True on success
+    (or when Sheets isn't configured — the row counts as submitted in that
+    case). Logs and swallows errors so the request never fails on Sheets.
+    """
+    if not sheets_backup.is_configured():
+        return True
+    try:
+        return sheets_backup.mirror_score_sync(score, judge, project)
+    except Exception as e:
+        print(f"[sheets] mirror_score_sync raised: {e}")
+        return False
+
+
 @app.post("/api/judge/scores")
 def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
+    """Three-layer reliability: DB write first (synchronous), Sheets second
+    (synchronous), and only then mark the row 'submitted'. Sheets failure
+    leaves the row as 'pending_sync' — the score is safe in the DB and the
+    background retry loop will replay it.
+    """
     conn = get_conn()
     project = conn.execute(
         "SELECT * FROM projects WHERE id = ? AND event_id = ?", (body.project_id, judge["event_id"])
@@ -302,12 +443,15 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
     if not project:
         raise HTTPException(404, "project not in this event")
     raw, weighted = _compute_totals(body)
+
+    # (b) DB write before any confirmation. Initial status is pending_sync —
+    # we'll flip it to 'submitted' below if Sheets returns OK.
     with tx() as c:
         c.execute(
             """
             INSERT INTO scores (judge_id, project_id, innovation, technical, impact, presentation,
                                 total_raw, total_weighted, notes, sync_status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_sync', CURRENT_TIMESTAMP)
             ON CONFLICT(judge_id, project_id) DO UPDATE SET
               innovation = excluded.innovation,
               technical  = excluded.technical,
@@ -317,7 +461,7 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
               total_weighted = excluded.total_weighted,
               notes      = excluded.notes,
               updated_at = CURRENT_TIMESTAMP,
-              sync_status = 'synced'
+              sync_status = 'pending_sync'
             """,
             (
                 judge["id"], body.project_id,
@@ -330,7 +474,11 @@ def judge_post_score(body: ScoreIn, judge=Depends(require_judge)):
             (judge["id"], body.project_id),
         ).fetchone()
     score = dict(row)
-    sheets_backup.mirror_score(score, dict(judge), dict(project))
+
+    # (c) Sheets sync, synchronous. Only flip to 'submitted' on success.
+    if _try_mirror_to_sheets(score, dict(judge), dict(project)):
+        _mark_score_submitted(judge["id"], body.project_id)
+        score["sync_status"] = "submitted"
     return score
 
 
@@ -373,10 +521,39 @@ def _all_score_rows_for_sync() -> list[dict]:
 
 @app.post("/api/admin/sync-sheets")
 def admin_sync_sheets(_=Depends(require_admin)):
-    """Re-export every score in the DB to the configured Sheet (idempotent)."""
+    """Re-export every score in the DB to the configured Sheet (idempotent).
+
+    On success, also flips any matching pending_sync rows to 'submitted' so
+    the Backup page's pending count goes to zero.
+    """
     rows = _all_score_rows_for_sync()
     result = sheets_backup.sync_all(rows)
+    if result.get("ok"):
+        with tx() as c:
+            c.execute("UPDATE scores SET sync_status = 'submitted' WHERE sync_status = 'pending_sync'")
     return {"total": len(rows), **result}
+
+
+@app.get("/api/admin/backup-status")
+def admin_backup_status(_=Depends(require_admin)):
+    """Snapshot for the admin Backup tab: live link, last-sync, pending count."""
+    pending_row = get_conn().execute(
+        "SELECT COUNT(*) AS n FROM scores WHERE sync_status = 'pending_sync'"
+    ).fetchone()
+    pending = pending_row["n"] if isinstance(pending_row, dict) else pending_row[0]
+    total_row = get_conn().execute("SELECT COUNT(*) AS n FROM scores").fetchone()
+    total = total_row["n"] if isinstance(total_row, dict) else total_row[0]
+    return {
+        **sheets_backup.last_status(),
+        "pending_count": pending,
+        "total_scores": total,
+    }
+
+
+@app.post("/api/admin/sync-pending")
+def admin_sync_pending(_=Depends(require_admin)):
+    """Run one immediate pass over pending_sync rows (admin "Retry now")."""
+    return _retry_pending_once()
 
 
 # ---------- Admin: events ----------
