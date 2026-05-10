@@ -231,28 +231,39 @@ def submit_event_info():
     }}
 
 
+def _looks_like_url(u: str) -> bool:
+    return u.startswith("http://") or u.startswith("https://")
+
+
 @app.post("/api/submit")
 def team_submit(body: TeamSubmitIn):
     """A team member registers their project for judging.
 
-    Public, no auth. Idempotent on (event_id, devpost_url) — teams can resubmit
-    to update their table number or fix typos.
+    Public, no auth. Idempotent on (event_id, team_number) — a team
+    re-submitting overwrites their previous registration.
     """
-    title = (body.title or "").strip()
-    devpost = (body.devpost_url or "").strip()
-    table = (body.table_number or "").strip()
-    team = (body.team_name or "").strip() or None
-    track = (body.track or "").strip()
-    if not title:
-        raise HTTPException(400, "missing project title")
-    if not devpost:
-        raise HTTPException(400, "missing Devpost link")
-    if not (devpost.startswith("http://") or devpost.startswith("https://")):
-        raise HTTPException(400, "devpost link must start with http:// or https://")
-    if not table:
+    team_number = body.team_number.strip()
+    robot_arm = body.robot_arm.strip()
+    description = body.description.strip()
+    github_url = body.github_url.strip()
+    x_post_url = body.x_post_url.strip()
+    huggingface_url = (body.huggingface_url or "").strip() or None
+    table_number = body.table_number.strip()
+
+    if not team_number:
+        raise HTTPException(400, "missing team number")
+    if not robot_arm:
+        raise HTTPException(400, "missing robot arm")
+    if not description:
+        raise HTTPException(400, "missing task description")
+    if not github_url or not _looks_like_url(github_url):
+        raise HTTPException(400, "github link must start with http:// or https://")
+    if not x_post_url or not _looks_like_url(x_post_url):
+        raise HTTPException(400, "X post link must start with http:// or https://")
+    if huggingface_url and not _looks_like_url(huggingface_url):
+        raise HTTPException(400, "huggingface link must start with http:// or https://")
+    if not table_number:
         raise HTTPException(400, "missing table number")
-    if not track:
-        raise HTTPException(400, "missing device number")
 
     if body.event_id is not None:
         ev_row = get_conn().execute(
@@ -267,37 +278,38 @@ def team_submit(body: TeamSubmitIn):
             raise HTTPException(404, "no event open for submissions")
         eid = ev["id"]
 
-    desc = (body.description or "").strip() or None
+    # The judge UI's project list keys off `title` — derive a readable one.
+    snippet = description if len(description) <= 60 else description[:57].rstrip() + "…"
+    title = f"Team {team_number}: {snippet}"
 
+    # Upsert keyed on (event_id, team_name) — team_name now stores the team
+    # number string, so re-submitting from the same team overwrites in place.
     with tx() as c:
-        if c.kind == "pg":
-            c.execute(
-                """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT (event_id, devpost_url) WHERE devpost_url IS NOT NULL DO UPDATE SET
-                     title = EXCLUDED.title,
-                     team_name = EXCLUDED.team_name,
-                     table_number = EXCLUDED.table_number,
-                     track = EXCLUDED.track,
-                     description = EXCLUDED.description""",
-                (eid, title, team, table, track, desc, devpost),
-            )
-        else:
-            c.execute(
-                """INSERT INTO projects (event_id, title, team_name, table_number, track, description, devpost_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT (event_id, devpost_url) WHERE devpost_url IS NOT NULL DO UPDATE SET
-                     title = excluded.title,
-                     team_name = excluded.team_name,
-                     table_number = excluded.table_number,
-                     track = excluded.track,
-                     description = excluded.description""",
-                (eid, title, team, table, track, desc, devpost),
-            )
-        row = c.execute(
-            "SELECT * FROM projects WHERE event_id = ? AND devpost_url = ?",
-            (eid, devpost),
+        existing = c.execute(
+            "SELECT id FROM projects WHERE event_id = ? AND team_name = ?",
+            (eid, team_number),
         ).fetchone()
+        if existing:
+            c.execute(
+                """UPDATE projects SET
+                     title = ?, table_number = ?, description = ?,
+                     robot_arm = ?, github_url = ?, x_post_url = ?, huggingface_url = ?
+                   WHERE id = ?""",
+                (title, table_number, description, robot_arm, github_url,
+                 x_post_url, huggingface_url, existing["id"]),
+            )
+            pid = existing["id"]
+        else:
+            pid = insert_returning_id(
+                c,
+                """INSERT INTO projects
+                     (event_id, title, team_name, table_number, description,
+                      robot_arm, github_url, x_post_url, huggingface_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (eid, title, team_number, table_number, description,
+                 robot_arm, github_url, x_post_url, huggingface_url),
+            )
+        row = c.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
     project = dict(row)
     sheets_backup.mirror_submission(project)
     return {"ok": True, "project": project}

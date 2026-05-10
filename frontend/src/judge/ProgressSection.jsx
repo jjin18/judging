@@ -33,16 +33,16 @@ export default function ProgressSection({ projects, scores, activeId, onPick, ju
                   <span className={`shrink-0 w-2 h-2 rounded-full ${has ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   <span className={`truncate ${active ? 'text-accent-600 font-medium' : ''}`}>{p.title}</span>
                 </button>
-                {p.devpost_url && (
+                {p.x_post_url && (
                   <a
-                    href={p.devpost_url}
+                    href={p.x_post_url}
                     target="_blank"
                     rel="noreferrer"
                     className="shrink-0 text-xs text-ink-500 hover:text-accent-600 px-2 py-1 touch-target"
                     onClick={(e) => e.stopPropagation()}
-                    aria-label="Open on Devpost"
+                    aria-label="Open X post"
                   >
-                    Devpost ↗
+                    X post ↗
                   </a>
                 )}
               </div>

@@ -27,8 +27,8 @@ from typing import Any, Iterable, Optional
 HEADER = ["timestamp", "judge_id", "team_or_project", "criterion_scores", "total", "comments"]
 SUBMISSIONS_TAB = "submissions"  # separate tab in the same spreadsheet
 SUBMISSIONS_HEADER = [
-    "timestamp", "project_id", "title", "team_name", "table_number",
-    "device_number", "devpost_url", "event_id",
+    "timestamp", "project_id", "team_number", "robot_arm", "task_description",
+    "github_url", "x_post_url", "huggingface_url", "table_number", "event_id",
 ]
 _KEY_SEP = " | "  # not a digit, not in JSON output
 
@@ -251,7 +251,7 @@ def mirror_score(score_row: dict, judge: dict, project: dict) -> None:
 
 def _format_submission_row(project_row: dict) -> tuple[str, list[Any]]:
     """Return (sheet_key, row) for a project submission. Keyed on project_id
-    so re-submissions for the same project upsert in place."""
+    so re-submissions upsert in place."""
     project_id = project_row.get("id")
     timestamp = str(project_row.get("imported_at") or project_row.get("updated_at") or "")
     if not timestamp:
@@ -259,11 +259,13 @@ def _format_submission_row(project_row: dict) -> tuple[str, list[Any]]:
     row = [
         timestamp,
         project_id,
-        project_row.get("title") or "",
-        project_row.get("team_name") or "",
+        project_row.get("team_name") or "",       # team_number lives in team_name col
+        project_row.get("robot_arm") or "",
+        project_row.get("description") or "",     # one-sentence task
+        project_row.get("github_url") or "",
+        project_row.get("x_post_url") or "",
+        project_row.get("huggingface_url") or "",
         project_row.get("table_number") or "",
-        project_row.get("track") or "",  # "Device #" in the UI
-        project_row.get("devpost_url") or "",
         project_row.get("event_id") or "",
     ]
     return f"submission{_KEY_SEP}{project_id}", row
@@ -271,7 +273,7 @@ def _format_submission_row(project_row: dict) -> tuple[str, list[Any]]:
 
 def _ensure_submissions_header(svc, sheet_id: str) -> None:
     _ensure_tab_exists(svc, sheet_id, SUBMISSIONS_TAB)
-    rng = f"{SUBMISSIONS_TAB}!A1:H1"
+    rng = f"{SUBMISSIONS_TAB}!A1:J1"
     res = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
     if not res.get("values", []):
         svc.spreadsheets().values().update(
@@ -285,7 +287,7 @@ def _ensure_submissions_header(svc, sheet_id: str) -> None:
 def _existing_submission_keys(svc, sheet_id: str) -> dict[str, int]:
     """Map project_id → row number in the submissions tab."""
     res = svc.spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"{SUBMISSIONS_TAB}!A2:H",
+        spreadsheetId=sheet_id, range=f"{SUBMISSIONS_TAB}!A2:J",
     ).execute()
     out: dict[str, int] = {}
     for i, row in enumerate(res.get("values", []) or [], start=2):
@@ -311,14 +313,14 @@ def _do_mirror_submission(project_row: dict) -> bool:
                 r = existing[key]
                 svc.spreadsheets().values().update(
                     spreadsheetId=sid,
-                    range=f"{SUBMISSIONS_TAB}!A{r}:H{r}",
+                    range=f"{SUBMISSIONS_TAB}!A{r}:J{r}",
                     valueInputOption="RAW",
                     body={"values": [row]},
                 ).execute()
             else:
                 svc.spreadsheets().values().append(
                     spreadsheetId=sid,
-                    range=f"{SUBMISSIONS_TAB}!A:H",
+                    range=f"{SUBMISSIONS_TAB}!A:J",
                     valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
                     body={"values": [row]},
