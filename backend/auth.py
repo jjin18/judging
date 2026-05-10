@@ -49,7 +49,7 @@ def generate_pin(existing: Optional[set[str]] = None) -> str:
 
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-please")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "PhysicalAIHacks2026!")
 JUDGE_TOKEN_DAYS = 30
 
 
