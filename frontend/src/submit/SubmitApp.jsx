@@ -8,7 +8,6 @@ export default function SubmitApp() {
     title: '',
     devpost_url: '',
     table_number: '',
-    team_name: '',
     track: '',
   });
   const [busy, setBusy] = useState(false);
@@ -93,8 +92,6 @@ export default function SubmitApp() {
               type="url" required placeholder="https://devpost.com/software/..." />
             <Field label="Table number" mono required value={form.table_number}
               onChange={(v) => set('table_number', v)} placeholder="14" />
-            <Field label="Team name" required value={form.team_name}
-              onChange={(v) => set('team_name', v)} placeholder="The Wayfinders" />
             <Field label="Device #" required value={form.track}
               onChange={(v) => set('track', v)} placeholder="e.g. 7" />
 
@@ -107,7 +104,6 @@ export default function SubmitApp() {
                 || !form.title.trim()
                 || !form.devpost_url.trim()
                 || !form.table_number.trim()
-                || !form.team_name.trim()
                 || !form.track.trim()
               }
               className="w-full rounded-xl bg-ink-900 text-white py-3 font-medium hover:bg-ink-700 disabled:opacity-40 touch-target"
@@ -150,7 +146,6 @@ function Confirmation({ project }) {
       <h2 className="text-lg font-semibold">Registered</h2>
       <div className="mt-4 text-left rounded-xl bg-slate-50 border border-ink-300/60 p-4 text-sm space-y-1">
         <div><b>{project.title}</b></div>
-        {project.team_name && <div className="text-ink-500">{project.team_name}</div>}
         {project.table_number && <div className="font-mono text-ink-500">Table {project.table_number}</div>}
         <a href={project.devpost_url} target="_blank" rel="noreferrer"
            className="block truncate text-accent-600 hover:underline pt-1">{project.devpost_url}</a>

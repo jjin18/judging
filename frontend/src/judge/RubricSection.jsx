@@ -2,7 +2,7 @@ const CRITERIA = [
   { name: 'Innovation & Originality', anchors: '1 obvious · 5 fresh · 10 breakthrough' },
   { name: 'Technical Complexity',     anchors: '1 tutorial · 5 substantial · 10 research-grade' },
   { name: 'Real-world Impact',        anchors: '1 toy · 5 narrow audience · 10 ships and matters' },
-  { name: 'Presentation & Demo',      anchors: '1 confused · 5 solid · 10 memorable' },
+  { name: 'Demo',                     anchors: '1 confused · 5 solid · 10 memorable' },
 ];
 
 export default function RubricSection() {

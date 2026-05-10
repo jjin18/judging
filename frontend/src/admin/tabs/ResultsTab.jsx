@@ -128,7 +128,7 @@ function RankedView({ ranked, unjudged, scoresByProject, expanded, setExpanded }
                           <th className="text-right py-1">Inn</th>
                           <th className="text-right py-1">Tech</th>
                           <th className="text-right py-1">Imp</th>
-                          <th className="text-right py-1">Pres</th>
+                          <th className="text-right py-1">Demo</th>
                           <th className="text-right py-1 pl-2">Wtd</th>
                         </tr>
                       </thead>
@@ -214,7 +214,7 @@ function AllScoresView({ scores }) {
             <th className="text-right px-2 py-2 w-12">Inn</th>
             <th className="text-right px-2 py-2 w-14">Tech</th>
             <th className="text-right px-2 py-2 w-12">Imp</th>
-            <th className="text-right px-2 py-2 w-12">Pres</th>
+            <th className="text-right px-2 py-2 w-12">Demo</th>
             <th className="text-right px-3 py-2 w-16">Wtd</th>
             <th className="text-right px-4 py-2 w-32">Updated</th>
           </tr>

@@ -2,7 +2,7 @@ const CRITERIA = [
   { key: 'innovation', label: 'Innovation & Originality', weight: 25, lo: 'obvious', hi: 'breakthrough' },
   { key: 'technical', label: 'Technical Complexity', weight: 25, lo: 'tutorial', hi: 'research-grade' },
   { key: 'impact', label: 'Real-world Impact', weight: 25, lo: 'toy demo', hi: 'ships and matters' },
-  { key: 'presentation', label: 'Presentation & Demo', weight: 25, lo: 'confused', hi: 'memorable' },
+  { key: 'presentation', label: 'Demo', weight: 25, lo: 'confused', hi: 'memorable' },
 ];
 
 export default function ScoringRubric(props) {
