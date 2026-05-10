@@ -29,7 +29,7 @@ function Landing() {
           <a href="/judge" className="block rounded-2xl border border-ink-300 bg-white px-6 py-5 text-left hover:border-accent-500 transition">
             <div className="text-sm uppercase tracking-wider text-ink-500">For Judges</div>
             <div className="text-lg font-medium">/judge</div>
-            <div className="text-sm text-ink-500 mt-1">Score projects, download your letter.</div>
+            <div className="text-sm text-ink-500 mt-1">Score projects from your panel.</div>
           </a>
           <a href="/admin" className="block rounded-2xl border border-ink-300 bg-white px-6 py-5 text-left hover:border-accent-500 transition">
             <div className="text-sm uppercase tracking-wider text-ink-500">For Organizers</div>

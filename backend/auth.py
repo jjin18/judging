@@ -1,8 +1,8 @@
 """JWT auth for judges, password auth for organizers."""
 import os
 import hashlib
+import re
 import secrets
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -12,18 +12,41 @@ from jose import JWTError, jwt
 from database import get_conn
 
 
-def normalize_pin(s: str) -> str:
-    """Fold accents, lowercase, strip everything that isn't alphanumeric.
+PIN_RE = re.compile(r"^\d{6}$")
 
-    "Liam O'Brien" -> "liamobrien", "Renée Müller" -> "reneemuller".
-    Used for both the stored pin and the user's input, so case/space/accent
-    variations all match.
-    """
+
+def normalize_pin(s: str) -> str:
+    """Strip everything that isn't a digit. PINs are 6-digit numeric."""
     if not s:
         return ""
-    folded = unicodedata.normalize("NFKD", s)
-    ascii_only = folded.encode("ascii", "ignore").decode("ascii")
-    return "".join(ch for ch in ascii_only if ch.isalnum()).lower()
+    return "".join(ch for ch in s if ch.isdigit())
+
+
+def is_valid_pin(s: str) -> bool:
+    return bool(s) and PIN_RE.match(s) is not None
+
+
+def _existing_pins() -> set[str]:
+    rows = get_conn().execute("SELECT pin FROM judges").fetchall()
+    return {(r["pin"] if isinstance(r, dict) else r[0]) for r in rows if (r["pin"] if isinstance(r, dict) else r[0])}
+
+
+def generate_pin(existing: Optional[set[str]] = None) -> str:
+    """Cryptographically random 6-digit PIN, unique across all judges.
+
+    If `existing` is None, queries the DB for current PINs. Pass in a set when
+    generating a batch in one transaction so newly-allocated PINs in that batch
+    don't collide with each other.
+    """
+    if existing is None:
+        existing = _existing_pins()
+    for _ in range(2000):
+        candidate = f"{secrets.randbelow(1_000_000):06d}"
+        if candidate not in existing:
+            existing.add(candidate)
+            return candidate
+    raise RuntimeError("could not allocate a unique 6-digit PIN")
+
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-please")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
@@ -54,7 +77,18 @@ def hash_token(token: str) -> str:
 
 
 def verify_password(password: str) -> bool:
-    return secrets.compare_digest(password, ADMIN_PASSWORD)
+    """Admin password check. Explicitly refuses to authenticate any value that
+    happens to match a judge PIN — defends against an `ADMIN_PASSWORD` that
+    accidentally collides with a judge PIN, or a judge submitting their PIN
+    against the admin login endpoint.
+    """
+    if not password:
+        return False
+    if not secrets.compare_digest(password, ADMIN_PASSWORD):
+        return False
+    if password in _existing_pins():
+        return False
+    return True
 
 
 def _decode(token: str) -> dict:
@@ -107,30 +141,27 @@ def require_admin(authorization: Optional[str] = Header(None)) -> dict:
 
 
 def verify_pin(pin: str, event_id: Optional[int] = None) -> Optional[dict]:
-    """Look up a judge by PIN.
+    """Look up a judge by exact 6-digit PIN.
 
-    Match is loose: we normalize both the input and the stored pin (lowercase,
-    fold accents, strip non-alphanumeric). A judge typing 'jane doe',
-    'JaneDoe', or 'Jane Doe' all hits the same row.
+    Names (or any name-derived value) never authenticate — the judge must enter
+    the assigned PIN.
     """
-    conn = get_conn()
     norm = normalize_pin(pin)
-    if not norm:
+    if not is_valid_pin(norm):
         return None
+    conn = get_conn()
     if event_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM judges WHERE event_id = ?", (event_id,)
-        ).fetchall()
+        row = conn.execute(
+            "SELECT * FROM judges WHERE event_id = ? AND pin = ?",
+            (event_id, norm),
+        ).fetchone()
     else:
-        rows = conn.execute(
+        row = conn.execute(
             """SELECT j.* FROM judges j
                JOIN events e ON e.id = j.event_id
-               ORDER BY e.created_at DESC, j.id DESC""",
-        ).fetchall()
-    for row in rows:
-        if normalize_pin(row["pin"]) == norm:
-            return dict(row)
-        # Fallback: tolerate name typed in directly even if stored pin was numeric
-        if normalize_pin(row["name"]) == norm:
-            return dict(row)
-    return None
+               WHERE j.pin = ?
+               ORDER BY e.created_at DESC, j.id DESC
+               LIMIT 1""",
+            (norm,),
+        ).fetchone()
+    return dict(row) if row else None

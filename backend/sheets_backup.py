@@ -1,143 +1,266 @@
-"""Fire-and-forget Google Sheets backup via Apps Script webhook.
+"""Mirror scores to a Google Sheet via service-account credentials.
 
-Set GOOGLE_SHEETS_WEBHOOK_URL to the published-as-web-app URL of an Apps
-Script that takes a JSON payload and appends a row. See README for setup.
+Configured via three env vars:
 
-The backup is best-effort: failures are logged but never block the user.
-Every score and every team submission is mirrored, so if the primary DB
-is wiped we can re-import from the spreadsheet.
+    GOOGLE_SHEETS_CREDENTIALS_JSON   the service-account JSON key (raw JSON)
+    SHEET_ID                         the spreadsheet's id (from its URL)
+    SHEET_TAB_NAME                   the tab/worksheet to write to
+
+The sheet must be shared with the service account's `client_email` (Editor).
+
+Writes are best-effort: failures are logged but never block the user. Each
+score row is keyed on (judge_id, project_id) so re-syncs are idempotent — a
+re-emit overwrites the matching row instead of appending a duplicate.
+
+Columns (in order):
+    timestamp, judge_id, team_or_project, criterion_scores, total, comments
 """
 from __future__ import annotations
 
 import json
 import os
 import threading
-from urllib import request as _request
-from urllib.error import URLError, HTTPError
+import time
+from typing import Any, Iterable, Optional
 
 
-def _webhook_url() -> str:
-    return os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
+HEADER = ["timestamp", "judge_id", "team_or_project", "criterion_scores", "total", "comments"]
+_KEY_SEP = " | "  # not a digit, not in JSON output
+
+_lock = threading.Lock()
 
 
-class _KeepMethodRedirect(_request.HTTPRedirectHandler):
-    """Preserve the POST method + body across 302 redirects.
+def _env_creds_json() -> str:
+    return os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "").strip()
 
-    Python's default redirect handler converts POST→GET on 302/303 and drops
-    the body (per HTTP spec). Apps Script web apps redirect /exec → /echo
-    with a 302; the default behavior would leave doPost never called and the
-    GET fall through to doGet, which returns 200 but writes nothing. We
-    deliberately preserve method + body so doPost runs.
+
+def _env_sheet_id() -> str:
+    return os.environ.get("SHEET_ID", "").strip()
+
+
+def _env_tab_name() -> str:
+    return os.environ.get("SHEET_TAB_NAME", "").strip() or "scores"
+
+
+def is_configured() -> bool:
+    return bool(_env_creds_json() and _env_sheet_id())
+
+
+def _build_service():
+    """Build a Sheets API client. Raises on misconfiguration or missing deps."""
+    creds_raw = _env_creds_json()
+    if not creds_raw or not _env_sheet_id():
+        raise RuntimeError("Sheets backup not configured")
+    try:
+        from google.oauth2.service_account import Credentials  # type: ignore
+        from googleapiclient.discovery import build  # type: ignore
+    except ImportError as e:
+        raise RuntimeError(
+            "google-api-python-client / google-auth not installed; "
+            "add them to requirements.txt"
+        ) from e
+    info = json.loads(creds_raw)
+    creds = Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    )
+    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+
+def _format_row(score: dict, judge: dict, project: dict) -> tuple[str, list[Any]]:
+    """Return (sheet_key, row) for a score+judge+project triple.
+
+    The sheet_key — `judge_id | team_or_project` — is what we dedup on for
+    upserts, matching the columns laid down in `HEADER`.
     """
+    judge_id = judge.get("id")
+    project_id = project.get("id")
+    team_or_project = (
+        project.get("team_name")
+        or project.get("title")
+        or f"project_{project_id}"
+    )
+    criterion = {
+        "innovation": score.get("innovation"),
+        "technical": score.get("technical"),
+        "impact": score.get("impact"),
+        "presentation": score.get("presentation"),
+    }
+    total = score.get("total_weighted")
+    comments = score.get("notes") or ""
+    timestamp = str(score.get("updated_at") or "")
+    if not timestamp:
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    row = [
+        timestamp,
+        judge_id,
+        team_or_project,
+        json.dumps(criterion, separators=(",", ":")),
+        total,
+        comments,
+    ]
+    return f"{judge_id}{_KEY_SEP}{team_or_project}", row
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if code not in (301, 302, 303, 307, 308):
-            return None
-        new_headers = {
-            k: v for k, v in req.header_items()
-            if k.lower() not in ("host",)  # keep Content-Type + Content-Length
-        }
-        return _request.Request(
-            newurl,
-            data=req.data,
-            method=req.get_method(),
-            headers=new_headers,
-            origin_req_host=getattr(req, "origin_req_host", None) or req.host,
-            unverifiable=True,
-        )
+
+def _ensure_header(svc, sheet_id: str, tab: str) -> None:
+    """Lay down the header row if the tab is empty (idempotent)."""
+    rng = f"{tab}!A1:F1"
+    res = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
+    values = res.get("values", [])
+    if not values:
+        svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=rng,
+            valueInputOption="RAW",
+            body={"values": [HEADER]},
+        ).execute()
 
 
-_OPENER = _request.build_opener(_KeepMethodRedirect())
+def _all_keys(svc, sheet_id: str, tab: str) -> dict[str, int]:
+    """Return {(judge_id|team_or_project): row_number} for existing data rows.
+
+    Row numbers are 1-indexed; the header occupies row 1 so data starts at row 2.
+    """
+    res = svc.spreadsheets().values().get(
+        spreadsheetId=sheet_id, range=f"{tab}!A2:F",
+    ).execute()
+    out: dict[str, int] = {}
+    for i, row in enumerate(res.get("values", []) or [], start=2):
+        if len(row) < 3:
+            continue
+        out[f"{row[1]}{_KEY_SEP}{row[2]}"] = i
+    return out
 
 
-def _post(payload: dict) -> None:
-    url = _webhook_url()
-    if not url:
+def _upsert_rows(svc, sheet_id: str, tab: str, rows: list[tuple[str, list[Any]]]) -> dict:
+    """Write rows, replacing any existing row with the same (judge_id, team_or_project)."""
+    _ensure_header(svc, sheet_id, tab)
+    existing = _all_keys(svc, sheet_id, tab)
+    updates: list[dict] = []
+    appends: list[list[Any]] = []
+    seen_in_batch: set[str] = set()
+    for key, row in rows:
+        if key in existing:
+            r = existing[key]
+            updates.append({"range": f"{tab}!A{r}:F{r}", "values": [row]})
+        elif key in seen_in_batch:
+            # Same key twice in this batch (rare) — fold into the last append.
+            for a in reversed(appends):
+                if f"{a[1]}{_KEY_SEP}{a[2]}" == key:
+                    a[:] = row
+                    break
+        else:
+            appends.append(row)
+            seen_in_batch.add(key)
+    written = 0
+    if updates:
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"valueInputOption": "RAW", "data": updates},
+        ).execute()
+        written += len(updates)
+    if appends:
+        svc.spreadsheets().values().append(
+            spreadsheetId=sheet_id,
+            range=f"{tab}!A:F",
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": appends},
+        ).execute()
+        written += len(appends)
+    return {"updated": len(updates), "appended": len(appends), "rows": written}
+
+
+def _do_mirror(score: dict, judge: dict, project: dict) -> None:
+    if not is_configured():
         return
     try:
-        body = json.dumps(payload).encode("utf-8")
-        req = _request.Request(
-            url,
-            data=body,
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with _OPENER.open(req, timeout=5) as resp:
-            if resp.status >= 300:
-                print(f"[sheets] non-2xx: {resp.status}")
-    except (HTTPError, URLError, TimeoutError, OSError) as e:
-        print(f"[sheets] webhook failed: {e}")
+        svc = _build_service()
+        with _lock:
+            _upsert_rows(
+                svc, _env_sheet_id(), _env_tab_name(),
+                [_format_row(score, judge, project)],
+            )
     except Exception as e:
-        print(f"[sheets] unexpected error: {e}")
+        print(f"[sheets] mirror failed: {e}")
 
 
 def mirror_score(score_row: dict, judge: dict, project: dict) -> None:
-    """Mirror a score upsert. Called from the API handler; runs in a thread."""
-    payload = {
-        "kind": "score",
-        "event_id": project.get("event_id"),
-        "judge_id": judge.get("id"),
-        "judge_name": judge.get("name"),
-        "project_id": project.get("id"),
-        "project_title": project.get("title"),
-        "team_name": project.get("team_name"),
-        "table_number": project.get("table_number"),
-        "devpost_url": project.get("devpost_url"),
-        "innovation": score_row.get("innovation"),
-        "technical": score_row.get("technical"),
-        "impact": score_row.get("impact"),
-        "presentation": score_row.get("presentation"),
-        "total_raw": score_row.get("total_raw"),
-        "total_weighted": score_row.get("total_weighted"),
-        "notes": score_row.get("notes"),
-        "updated_at": str(score_row.get("updated_at") or ""),
-    }
-    threading.Thread(target=_post, args=(payload,), daemon=True).start()
+    """Mirror a score upsert to the Sheet. Runs in a daemon thread; never blocks."""
+    threading.Thread(
+        target=_do_mirror, args=(score_row, judge, project), daemon=True,
+    ).start()
 
 
 def mirror_submission(project_row: dict) -> None:
-    """Mirror a team submission. Called from /api/submit; runs in a thread."""
-    payload = {
-        "kind": "submission",
-        "event_id": project_row.get("event_id"),
-        "project_id": project_row.get("id"),
-        "title": project_row.get("title"),
-        "team_name": project_row.get("team_name"),
-        "table_number": project_row.get("table_number"),
-        "track": project_row.get("track"),
-        "devpost_url": project_row.get("devpost_url"),
-    }
-    threading.Thread(target=_post, args=(payload,), daemon=True).start()
+    """No-op for submissions — only scores go to the Sheet by spec.
+
+    Kept as a stub so existing call sites don't need conditional imports.
+    """
+    return None
+
+
+def sync_all(rows: Iterable[dict]) -> dict:
+    """Re-export every score in the DB to the Sheet, idempotent.
+
+    `rows` is an iterable of dicts with at least the keys produced by
+    `_collect_score_rows` in main.py. Synchronous — called from the admin
+    "Sync to Sheet" handler.
+    """
+    if not is_configured():
+        return {"ok": False, "error": "Sheets backup not configured (GOOGLE_SHEETS_CREDENTIALS_JSON / SHEET_ID)"}
+    try:
+        svc = _build_service()
+    except Exception as e:
+        return {"ok": False, "error": f"could not build Sheets client: {e}"}
+    formatted: list[tuple[str, list[Any]]] = []
+    for r in rows:
+        score = {
+            "innovation": r["innovation"],
+            "technical": r["technical"],
+            "impact": r["impact"],
+            "presentation": r["presentation"],
+            "total_weighted": r["total_weighted"],
+            "notes": r.get("notes") or "",
+            "updated_at": r.get("updated_at") or "",
+        }
+        judge = {"id": r["judge_id"]}
+        project = {
+            "id": r["project_id"],
+            "title": r.get("project_title"),
+            "team_name": r.get("team_name"),
+        }
+        formatted.append(_format_row(score, judge, project))
+    try:
+        with _lock:
+            result = _upsert_rows(svc, _env_sheet_id(), _env_tab_name(), formatted)
+    except Exception as e:
+        return {"ok": False, "error": f"Sheets write failed: {e}"}
+    return {"ok": True, **result, "tab": _env_tab_name()}
 
 
 def send_test() -> dict:
-    """Synchronous round-trip test. Returns a dict the admin UI can render."""
-    import time as _time
-    url = _webhook_url()
-    if not url:
-        return {"ok": False, "error": "GOOGLE_SHEETS_WEBHOOK_URL is not set"}
-    payload = {
-        "kind": "test",
-        "marker": "judging-platform-self-test",
-        "ts": _time.time(),
-    }
+    """Round-trip a probe row to the configured tab. Returns a dict the admin UI renders."""
+    if not is_configured():
+        return {"ok": False, "error": "GOOGLE_SHEETS_CREDENTIALS_JSON / SHEET_ID not set"}
     try:
-        body = json.dumps(payload).encode("utf-8")
-        req = _request.Request(
-            url, data=body, method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with _OPENER.open(req, timeout=10) as resp:
-            text = resp.read(2048).decode("utf-8", errors="replace")
-            return {
-                "ok": 200 <= resp.status < 300,
-                "status": resp.status,
-                "url": url,
-                "response": text[:500],
-            }
-    except HTTPError as e:
-        return {"ok": False, "status": e.code, "url": url, "error": str(e)}
-    except (URLError, TimeoutError, OSError) as e:
-        return {"ok": False, "url": url, "error": str(e)}
+        svc = _build_service()
     except Exception as e:
-        return {"ok": False, "url": url, "error": f"unexpected: {e}"}
+        return {"ok": False, "error": f"client build failed: {e}"}
+    probe = {
+        "innovation": 0,
+        "technical": 0,
+        "impact": 0,
+        "presentation": 0,
+        "total_weighted": 0,
+        "notes": "round-trip self-test",
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    judge = {"id": "self-test"}
+    project = {"id": 0, "title": "self-test", "team_name": "self-test"}
+    try:
+        with _lock:
+            result = _upsert_rows(svc, _env_sheet_id(), _env_tab_name(),
+                                  [_format_row(probe, judge, project)])
+    except Exception as e:
+        return {"ok": False, "error": f"write failed: {e}"}
+    return {"ok": True, "tab": _env_tab_name(), **result}

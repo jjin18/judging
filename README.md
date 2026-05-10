@@ -12,26 +12,14 @@ Three routes, one codebase. Offline-first. Mobile-first for judges.
 
 ```bash
 ./start.sh                          # backend :8000 + Vite :5173
-python backend/seed.py              # cmd-f 2025 + 10 dummy judges
+python backend/seed.py              # 1 event + 10 dummy judges
 open http://localhost:5173          # picks up all three routes
 ```
 
-Default admin password: `admin`. Judge PINs = normalized names (`Jia Jin` → `jiajin`).
-
-| Judge        | PIN          |
-|--------------|--------------|
-| Jia Jin      | `jiajin`     |
-| Daniel Park  | `danielpark` |
-| Asha Patel   | `ashapatel`  |
-| Marcus Chen  | `marcuschen` |
-| Priya Iyer   | `priyaiyer`  |
-| Liam O'Brien | `liamobrien` |
-| Sofia Reyes  | `sofiareyes` |
-| Hiro Tanaka  | `hirotanaka` |
-| Nadia Volkov | `nadiavolkov`|
-| Eli Kim      | `elikim`     |
-
-`Jia Jin` / `jia jin` / `JIA JIN` / `jiajin` all match — case, spaces, accents, and punctuation are folded.
+Default admin password: `admin`. Judge PINs are random 6-digit numeric codes
+allocated at create-time and printed by `seed.py`. Names never log in — judges
+enter their PIN at `/judge`. Admins can read every judge's PIN from the
+**Judges** tab in the admin dashboard.
 
 ## Deployment (Railway, with Postgres + Sheets backup)
 
@@ -50,41 +38,54 @@ curl https://your-app/api/health
 
 If `db` shows `sqlite` in production, the DATABASE_URL isn't reaching the service — check the variable wiring.
 
-The first boot with an empty Postgres DB auto-seeds the cmd-f 2025 event + 10 dummy judges. Set `SKIP_AUTO_SEED=1` to disable.
+The first boot with an empty Postgres DB auto-seeds the dummy event + 10 judges. Set `SKIP_AUTO_SEED=1` to disable. Any judge PIN that isn't a valid 6-digit code (e.g. legacy name-derived values) is rewritten to a fresh random one on first boot.
 
-### 2. Off-platform backup: Google Sheets
+### 2. Off-platform backup: Google Sheets (service account)
 
-Every score and every team submission is mirrored, fire-and-forget, to a Google Sheet via Apps Script. If Railway burns down, the spreadsheet is the source of truth.
+Every score upsert is mirrored, fire-and-forget, to a Google Sheet through
+the Sheets API v4 using a service account. If Railway burns down, the
+spreadsheet is the source of truth.
 
-**One-time setup** (5 min):
+**One-time setup**:
 
-1. Create a new Google Sheet. Add two tabs named `scores` and `submissions`.
-2. **Extensions → Apps Script**, paste this:
+1. **Create a Google Cloud service account.**
+   In the Cloud Console: *IAM & Admin → Service Accounts → Create Service Account*.
+   Skip granting any project-level role. **Keys → Add Key → JSON** and download
+   the file. The JSON contains a `client_email` field — note it.
 
-   ```js
-   const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
-   function doPost(e) {
-     const p = JSON.parse(e.postData.contents);
-     const ss = SpreadsheetApp.openById(SHEET_ID);
-     const tab = p.kind === 'score' ? 'scores' : 'submissions';
-     const sh = ss.getSheetByName(tab) || ss.insertSheet(tab);
-     if (sh.getLastRow() === 0) sh.appendRow(Object.keys(p));
-     const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-     sh.appendRow(headers.map(h => p[h] ?? ''));
-     return ContentService.createTextOutput('ok');
-   }
-   ```
+2. **Enable the Sheets API** for the project:
+   *APIs & Services → Library → Google Sheets API → Enable*.
 
-3. **Deploy → New deployment → Web app**, execute as **Me**, access **Anyone**.
-4. Copy the deployment URL → set as `GOOGLE_SHEETS_WEBHOOK_URL` on Railway.
+3. **Create a Google Sheet.** Open it, click **Share**, paste the service
+   account's `client_email`, set Editor, and uncheck "Notify". Note the
+   spreadsheet ID from the URL (`docs.google.com/spreadsheets/d/<SHEET_ID>/edit`)
+   and the tab name (default: `scores`).
 
-The boot log will show `[boot] Google Sheets backup: enabled` and `/api/health` will report `"sheets_backup": true`. Score and submission rows now also appear in the spreadsheet within seconds.
+4. **Configure env vars** on Railway → web service → Variables:
+
+   | Variable                        | Value                                                  |
+   | ------------------------------- | ------------------------------------------------------ |
+   | `GOOGLE_SHEETS_CREDENTIALS_JSON` | The full JSON key file contents, pasted as one string. |
+   | `SHEET_ID`                      | The spreadsheet ID from the URL.                       |
+   | `SHEET_TAB_NAME`                | Tab name to write to (defaults to `scores`).           |
+
+   Save (Railway redeploys automatically).
+
+5. **Verify.** Reload `/admin`. The banner turns green. Click **Test** to
+   write a probe row to the configured tab. Click **Sync to Sheet** to
+   re-export every score in the DB (idempotent — keyed on judge_id +
+   team/project).
+
+The mirror runs in a daemon thread on every score submit. The first row to
+each tab lays down the header `timestamp, judge_id, team_or_project,
+criterion_scores, total, comments`. PINs are never written to the sheet —
+only `judge_id`.
 
 ### Recovery: if Postgres is gone
 
 You have three independent copies of the data:
 
-1. **The Sheet** — every score + submission since you set up the webhook.
+1. **The Sheet** — every score since you set up the credentials.
 2. **`/api/admin/export/scores`** — full CSV download from the running app.
 3. **IndexedDB on each judge's device** — their own scores survive a server outage and re-sync when the server comes back (offline queue → idempotent upsert).
 
@@ -93,14 +94,15 @@ To rebuild from the Sheet: download as CSV, run a one-shot import — or just op
 ## Required env
 
 ```
-ADMIN_PASSWORD=...         # organizer login (default: admin)
-JWT_SECRET=...             # signing secret (defaults to a dev secret — change!)
-DATABASE_URL=...           # postgresql://… — Railway sets this automatically
-GOOGLE_SHEETS_WEBHOOK_URL= # Apps Script web app URL (optional but recommended)
+ADMIN_PASSWORD=...                 # organizer login (default: admin)
+JWT_SECRET=...                     # signing secret (defaults to a dev secret — change!)
+DATABASE_URL=...                   # postgresql://… — Railway sets this automatically
+GOOGLE_SHEETS_CREDENTIALS_JSON=... # service-account JSON (optional but recommended)
+SHEET_ID=...                       # spreadsheet ID (from the URL)
+SHEET_TAB_NAME=scores              # tab to write to (defaults to "scores")
 FRONTEND_BASE_URL=https://yourapp.com   # used in QR codes
-SKIP_AUTO_SEED=1           # disable empty-DB auto-seed
-MIGRATE_PINS_TO_NAMES=1    # one-shot: rewrite numeric PINs to normalized names
-DB_PATH=./judging.db       # only used when DATABASE_URL is unset
+SKIP_AUTO_SEED=1                   # disable empty-DB auto-seed
+DB_PATH=./judging.db               # only used when DATABASE_URL is unset
 ```
 
 ## Project structure
@@ -109,24 +111,34 @@ DB_PATH=./judging.db       # only used when DATABASE_URL is unset
 backend/
   main.py            FastAPI routes (submit + judge + admin)
   database.py        Dual SQLite/Postgres layer; idempotent ALTERs
-  auth.py            JWT for judges + admin password
-  sheets_backup.py   Apps Script webhook mirror (fire-and-forget)
+  auth.py            JWT for judges + admin password + PIN allocation
+  sheets_backup.py   Google Sheets service-account mirror (fire-and-forget)
   seed.py            Dev fixtures (event + 10 judges, no projects)
+  test_auth.py       Auth + Sheets-backup tests (pytest)
 frontend/
   public/sw.js       Service worker — offline POST passthrough
   src/
     App.jsx          Routes /submit /judge /admin + landing
     submit/          Public team submission form
-    judge/           Two-panel dashboard, scoring, PDF letter
+    judge/           Two-panel dashboard, scoring
     admin/           Event sidebar, setup/projects/judges tabs
     lib/             db.js (IndexedDB), sync.js (queue), api.js
 ```
+
+## Tests
+
+```bash
+cd backend && pytest -q
+```
+
+Covers PIN auth, admin/judge auth separation, ADMIN_PASSWORD/PIN collision
+detection, and the score → Sheets mirror (mocked).
 
 ## Data model
 
 ```sql
 events     (id, name, date, venue, ..., devpost_url, hours_expected)
-judges     (id, event_id, name, email, expertise, pin)
+judges     (id, event_id, name, email, expertise, pin)        -- pin = 6 digits
 projects   (id, event_id, title, team_name, table_number, track,
             description, devpost_url)
             UNIQUE (event_id, devpost_url) WHERE devpost_url IS NOT NULL

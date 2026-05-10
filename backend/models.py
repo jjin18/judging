@@ -78,7 +78,7 @@ class ScoreOut(BaseModel):
 
 
 class PinAuthIn(BaseModel):
-    pin: str
+    pin: str = Field(min_length=1, max_length=20)
     event_id: Optional[int] = None
 
 
