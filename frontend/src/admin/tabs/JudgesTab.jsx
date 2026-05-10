@@ -5,7 +5,6 @@ import { adminApi } from '../../lib/api.js';
 export default function JudgesTab({ token, event }) {
   const [judges, setJudges] = useState([]);
   const [error, setError] = useState('');
-  const [previewQr, setPreviewQr] = useState(null);
 
   async function refresh() {
     const rows = await adminApi.judges(token, event.id);
@@ -61,13 +60,6 @@ export default function JudgesTab({ token, event }) {
             className="text-sm min-w-0 max-w-[180px]"
           />
         </label>
-        <a
-          href={adminApi.qrZipUrl(token, event.id)}
-          className="sm:ml-auto text-sm rounded-xl border border-ink-300 px-4 py-2 hover:border-accent-500"
-          download
-        >
-          QR codes (ZIP)
-        </a>
         {error && <div className="basis-full text-sm text-red-600">{error}</div>}
       </div>
 
@@ -86,7 +78,6 @@ export default function JudgesTab({ token, event }) {
                   <div className="text-xs text-ink-500 mt-1 font-mono">PIN: {j.pin}</div>
                 </div>
                 <div className="text-xs flex flex-col items-end gap-1 shrink-0">
-                  <button onClick={() => setPreviewQr(j)} className="text-accent-600 hover:underline">QR</button>
                   <button onClick={() => resetPin(j)} className="text-ink-500 hover:text-ink-900">Reset</button>
                   <button
                     onClick={async () => { if (confirm(`Remove ${j.name}?`)) { await adminApi.deleteJudge(token, j.id); refresh(); } }}
@@ -105,7 +96,6 @@ export default function JudgesTab({ token, event }) {
               <th className="text-left px-4 py-2">Name</th>
               <th className="text-left px-3 py-2">Expertise</th>
               <th className="text-left px-3 py-2 w-28">PIN</th>
-              <th className="text-left px-3 py-2 w-28">QR</th>
               <th className="text-right px-4 py-2 w-40">Actions</th>
             </tr>
           </thead>
@@ -115,11 +105,6 @@ export default function JudgesTab({ token, event }) {
                 <td className="px-4 py-2 font-medium">{j.name}<div className="text-xs text-ink-500">{j.email}</div></td>
                 <td className="px-3 py-2 text-ink-700">{j.expertise || '—'}</td>
                 <td className="px-3 py-2 font-mono">{j.pin}</td>
-                <td className="px-3 py-2">
-                  <button onClick={() => setPreviewQr(j)} className="text-accent-600 text-xs hover:underline">Preview</button>
-                  {' · '}
-                  <a href={adminApi.judgeQrUrl(token, j.id)} download={`qr_${j.name}.png`} className="text-accent-600 text-xs hover:underline">PNG</a>
-                </td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => resetPin(j)} className="text-xs text-ink-500 hover:text-ink-900 mr-3">Reset PIN</button>
                   <button
@@ -130,27 +115,10 @@ export default function JudgesTab({ token, event }) {
               </tr>
             ))}
             {judges.length === 0 && (
-              <tr><td colSpan={5} className="text-center py-8 text-ink-500 text-sm">No judges yet — add one or import CSV.</td></tr>
+              <tr><td colSpan={4} className="text-center py-8 text-ink-500 text-sm">No judges yet — add one or import CSV.</td></tr>
             )}
           </tbody>
         </table>
-      </div>
-
-      {previewQr && <QrPreview judge={previewQr} event={event} token={token} onClose={() => setPreviewQr(null)} />}
-    </div>
-  );
-}
-
-function QrPreview({ judge, event, token, onClose }) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
-        <div className="text-xs uppercase tracking-wider text-ink-500">{event.name}</div>
-        <img src={`/api/admin/judges/${judge.id}/qr?token=${encodeURIComponent(token)}`} alt="QR" className="mx-auto my-4 w-56 h-56" />
-        <div className="text-sm">Judge: <b>{judge.name}</b></div>
-        <div className="text-sm font-mono mt-1">PIN: {judge.pin}</div>
-        <div className="text-xs text-ink-500 mt-3">Scan to begin judging — or enter the PIN at /judge.</div>
-        <button onClick={onClose} className="mt-4 text-sm rounded-lg border border-ink-300 px-4 py-2 hover:border-accent-500">Close</button>
       </div>
     </div>
   );

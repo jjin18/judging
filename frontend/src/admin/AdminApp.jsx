@@ -154,7 +154,6 @@ function ExportLinks({ event, token }) {
   const links = [
     { label: 'Scores CSV', href: `/api/admin/export/scores?event_id=${event.id}&token=${t}` },
     { label: 'Leaderboard CSV', href: `/api/admin/export/leaderboard?event_id=${event.id}&token=${t}` },
-    { label: 'Luma top 10 CSV', href: `/api/admin/export/luma?event_id=${event.id}&top=10&token=${t}` },
   ];
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">

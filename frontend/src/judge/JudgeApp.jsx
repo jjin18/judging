@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import LoginScreen from './LoginScreen.jsx';
 import Dashboard from './Dashboard.jsx';
 import { judgeApi } from '../lib/api.js';
@@ -9,7 +8,6 @@ import { startSyncLoop } from '../lib/sync.js';
 const LS_TOKEN = 'judge.token';
 
 export default function JudgeApp() {
-  const [params, setParams] = useSearchParams();
   const [state, setState] = useState({ phase: 'loading' });
 
   useEffect(() => {
@@ -42,21 +40,6 @@ export default function JudgeApp() {
           return;
         } catch {
           sessionStorage.removeItem(LS_TOKEN);
-        }
-      }
-
-      // QR code on the URL still works — same tab, scanning a fresh code.
-      const qrToken = params.get('token');
-      if (qrToken) {
-        try {
-          const boot = await judgeApi.authQr(qrToken);
-          await persistBootstrap(boot);
-          setParams({}, { replace: true });
-          if (!cancelled) setState({ phase: 'in', profile: profileFromBoot(boot), projects: boot.projects, scores: boot.scores });
-          startSyncLoop();
-          return;
-        } catch {
-          // fall through to PIN screen
         }
       }
 
