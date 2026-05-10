@@ -30,7 +30,7 @@ export function downloadMyScoresPDF({ judge, event, projects, scores }) {
     { label: 'Inn', x: margin + 232, w: 30 },
     { label: 'Tech', x: margin + 264, w: 32 },
     { label: 'Imp', x: margin + 298, w: 30 },
-    { label: 'Pres', x: margin + 330, w: 32 },
+    { label: 'Demo', x: margin + 330, w: 32 },
     { label: 'Wtd', x: margin + 364, w: 36 },
   ];
   cols.forEach((c) => doc.text(c.label, c.x, y));

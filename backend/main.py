@@ -241,7 +241,7 @@ def team_submit(body: TeamSubmitIn):
     title = (body.title or "").strip()
     devpost = (body.devpost_url or "").strip()
     table = (body.table_number or "").strip()
-    team = (body.team_name or "").strip()
+    team = (body.team_name or "").strip() or None
     track = (body.track or "").strip()
     if not title:
         raise HTTPException(400, "missing project title")
@@ -251,8 +251,6 @@ def team_submit(body: TeamSubmitIn):
         raise HTTPException(400, "devpost link must start with http:// or https://")
     if not table:
         raise HTTPException(400, "missing table number")
-    if not team:
-        raise HTTPException(400, "missing team name")
     if not track:
         raise HTTPException(400, "missing device number")
 
