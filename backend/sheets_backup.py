@@ -101,8 +101,28 @@ def _format_row(score: dict, judge: dict, project: dict) -> tuple[str, list[Any]
     return f"{judge_id}{_KEY_SEP}{team_or_project}", row
 
 
+def _ensure_tab_exists(svc, sheet_id: str, tab: str) -> None:
+    """Create the worksheet tab if it doesn't already exist.
+
+    A fresh spreadsheet only has "Sheet1"; if the operator set
+    SHEET_TAB_NAME=scores we need to add that tab before any range read,
+    otherwise the API 400s with "Unable to parse range".
+    """
+    meta = svc.spreadsheets().get(
+        spreadsheetId=sheet_id, fields="sheets.properties.title",
+    ).execute()
+    titles = {s["properties"]["title"] for s in meta.get("sheets", [])}
+    if tab in titles:
+        return
+    svc.spreadsheets().batchUpdate(
+        spreadsheetId=sheet_id,
+        body={"requests": [{"addSheet": {"properties": {"title": tab}}}]},
+    ).execute()
+
+
 def _ensure_header(svc, sheet_id: str, tab: str) -> None:
     """Lay down the header row if the tab is empty (idempotent)."""
+    _ensure_tab_exists(svc, sheet_id, tab)
     rng = f"{tab}!A1:F1"
     res = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
     values = res.get("values", [])
