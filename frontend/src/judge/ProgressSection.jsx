@@ -1,4 +1,4 @@
-import { downloadMyScoresPDF } from './LetterPDF.js';
+import { downloadMyScoresPDF } from './ScoresPDF.js';
 
 export default function ProgressSection({ projects, scores, activeId, onPick, judge }) {
   const total = projects.length || 1;

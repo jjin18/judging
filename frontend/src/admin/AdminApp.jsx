@@ -205,8 +205,8 @@ function Login({ onAuthed }) {
 
 function BackupStatus({ token }) {
   const [health, setHealth] = useState(null);
-  const [testResult, setTestResult] = useState(null);
-  const [testing, setTesting] = useState(false);
+  const [actionResult, setActionResult] = useState(null);
+  const [busy, setBusy] = useState('');
   const [hidden, setHidden] = useState(() => localStorage.getItem("admin.hideBackupBanner") === "1");
 
   useEffect(() => {
@@ -217,13 +217,23 @@ function BackupStatus({ token }) {
   const enabled = health.sheets_backup;
 
   async function runTest() {
-    setTesting(true); setTestResult(null);
+    setBusy('test'); setActionResult(null);
     try {
       const r = await adminApi.testSheets(token);
-      setTestResult(r);
+      setActionResult({ kind: 'test', ...r });
     } catch (e) {
-      setTestResult({ ok: false, error: e.message });
-    } finally { setTesting(false); }
+      setActionResult({ kind: 'test', ok: false, error: e.message });
+    } finally { setBusy(''); }
+  }
+
+  async function runSync() {
+    setBusy('sync'); setActionResult(null);
+    try {
+      const r = await adminApi.syncSheets(token);
+      setActionResult({ kind: 'sync', ...r });
+    } catch (e) {
+      setActionResult({ kind: 'sync', ok: false, error: e.message });
+    } finally { setBusy(''); }
   }
 
   return (
@@ -236,16 +246,24 @@ function BackupStatus({ token }) {
         Sheets: <b>{enabled ? "enabled" : "not configured"}</b>
       </span>
       {enabled && (
-        <button onClick={runTest} disabled={testing}
-          className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs hover:bg-emerald-100 disabled:opacity-50">
-          {testing ? "Testing…" : "Test"}
-        </button>
+        <>
+          <button onClick={runTest} disabled={!!busy}
+            className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs hover:bg-emerald-100 disabled:opacity-50">
+            {busy === 'test' ? "Testing…" : "Test"}
+          </button>
+          <button onClick={runSync} disabled={!!busy}
+            className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs hover:bg-emerald-100 disabled:opacity-50">
+            {busy === 'sync' ? "Syncing…" : "Sync to Sheet"}
+          </button>
+        </>
       )}
-      {testResult && (
+      {actionResult && (
         <span className="text-xs basis-full sm:basis-auto">
-          {testResult.ok
-            ? `✓ ${testResult.status} — check Sheet for kind="test"`
-            : `✗ ${testResult.error || `status ${testResult.status}`}`}
+          {actionResult.ok
+            ? (actionResult.kind === 'sync'
+                ? `✓ Synced ${actionResult.total ?? actionResult.rows ?? 0} score rows (${actionResult.appended ?? 0} new, ${actionResult.updated ?? 0} updated)`
+                : `✓ Probe row written to "${actionResult.tab}"`)
+            : `✗ ${actionResult.error || 'failed'}`}
         </span>
       )}
       <button

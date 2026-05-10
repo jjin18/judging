@@ -68,6 +68,7 @@ export const adminApi = {
   leaderboard: (t, eid) => request(`/api/admin/leaderboard?event_id=${eid}`, { headers: H(t) }),
   scores: (t, eid) => request(`/api/admin/scores?event_id=${eid}`, { headers: H(t) }),
   testSheets: (t) => request('/api/admin/test-sheets-backup', { method: 'POST', headers: H(t) }),
+  syncSheets: (t) => request('/api/admin/sync-sheets', { method: 'POST', headers: H(t) }),
   health: () => request('/api/health'),
 };
 

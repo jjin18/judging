@@ -23,7 +23,7 @@ from models import (
 from auth import (
     make_judge_token, make_admin_token, hash_token,
     verify_password, verify_pin, require_judge, require_admin, require_admin_q,
-    normalize_pin,
+    generate_pin, is_valid_pin, normalize_pin,
 )
 from scrape_devpost import scrape_event
 import sheets_backup
@@ -40,11 +40,11 @@ async def lifespan(app: FastAPI):
     if backend == "sqlite" and os.environ.get("RAILWAY_ENVIRONMENT"):
         print("[boot] WARNING: running on Railway with SQLite — filesystem is "
               "ephemeral. Attach a Postgres plugin and set DATABASE_URL.")
-    if os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip():
+    if sheets_backup.is_configured():
         print("[boot] Google Sheets backup: enabled")
     init_db()
     _maybe_auto_seed()
-    _maybe_migrate_pins_to_names()
+    _migrate_legacy_pins_to_random()
     _rename_legacy_event()
     start_backup_scheduler()
     yield
@@ -63,23 +63,23 @@ def _rename_legacy_event() -> None:
         print(f"[boot] event rename skipped: {e}")
 
 
-def _maybe_migrate_pins_to_names() -> None:
-    """One-shot: rewrite all PINs to the normalized judge name.
-
-    Opt-in via MIGRATE_PINS_TO_NAMES=1 — for the deployed DB that still has
-    numeric PINs from earlier seed runs.
+def _migrate_legacy_pins_to_random() -> None:
+    """Idempotent: any judge whose stored pin isn't already a 6-digit numeric
+    PIN gets re-issued a random one. Catches old name-derived PINs from before
+    the random-PIN switch.
     """
-    if os.environ.get("MIGRATE_PINS_TO_NAMES") != "1":
-        return
     try:
         conn = get_conn()
-        rows = conn.execute("SELECT id, name FROM judges").fetchall()
+        rows = conn.execute("SELECT id, pin FROM judges").fetchall()
+        used = {r["pin"] for r in rows if is_valid_pin(r["pin"] or "")}
+        targets = [r for r in rows if not is_valid_pin(r["pin"] or "")]
+        if not targets:
+            return
         with tx() as c:
-            for r in rows:
-                pin = normalize_pin(r["name"])
-                if pin:
-                    c.execute("UPDATE judges SET pin = ? WHERE id = ?", (pin, r["id"]))
-        print(f"[boot] migrated {len(rows)} judge PINs to normalized names")
+            for r in targets:
+                new_pin = generate_pin(used)
+                c.execute("UPDATE judges SET pin = ? WHERE id = ?", (new_pin, r["id"]))
+        print(f"[boot] migrated {len(targets)} legacy PIN(s) to random 6-digit codes")
     except Exception as e:
         print(f"[boot] PIN migration skipped: {e}")
 
@@ -126,7 +126,7 @@ def health():
         "ok": True,
         "db": backend,
         "counts": counts,
-        "sheets_backup": bool(os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()),
+        "sheets_backup": sheets_backup.is_configured(),
     }
 
 
@@ -344,11 +344,39 @@ def admin_auth(body: AdminAuthIn):
 
 @app.post("/api/admin/test-sheets-backup")
 def admin_test_sheets(_=Depends(require_admin)):
-    """Send a synchronous test payload to the Apps Script webhook.
+    """Round-trip a probe row to the configured Sheet to verify the credentials.
 
-    Use after configuring GOOGLE_SHEETS_WEBHOOK_URL to verify the round-trip.
+    Use after configuring GOOGLE_SHEETS_CREDENTIALS_JSON / SHEET_ID / SHEET_TAB_NAME.
     """
     return sheets_backup.send_test()
+
+
+def _all_score_rows_for_sync() -> list[dict]:
+    """Every score in the DB, joined with project metadata, in a shape
+    `sheets_backup.sync_all` understands. Used by the manual sync button.
+    """
+    rows = get_conn().execute(
+        """
+        SELECT s.judge_id,
+               s.project_id,
+               p.title AS project_title,
+               p.team_name,
+               s.innovation, s.technical, s.impact, s.presentation,
+               s.total_weighted, s.notes, s.updated_at
+        FROM scores s
+        JOIN projects p ON p.id = s.project_id
+        ORDER BY s.updated_at
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/admin/sync-sheets")
+def admin_sync_sheets(_=Depends(require_admin)):
+    """Re-export every score in the DB to the configured Sheet (idempotent)."""
+    rows = _all_score_rows_for_sync()
+    result = sheets_backup.sync_all(rows)
+    return {"total": len(rows), **result}
 
 
 # ---------- Admin: events ----------
@@ -496,18 +524,24 @@ def admin_list_judges(event_id: int, _=Depends(require_admin)):
     return [dict(r) for r in rows]
 
 
-def _default_pin_for(name: str) -> str:
-    """PINs are normalized names. Falls back to short random suffix on collision."""
-    import secrets
-    base = normalize_pin(name)
-    if not base:
-        return f"judge{secrets.randbelow(10000):04d}"
-    return base
+def _coerce_pin(supplied: Optional[str], used: set[str]) -> str:
+    """Validate or allocate a PIN.
+
+    - Empty/missing input → generate a unique random 6-digit PIN.
+    - Supplied input → must normalize to exactly 6 digits and be unique;
+      otherwise we fall back to a fresh random PIN. Names never become PINs.
+    """
+    norm = normalize_pin(supplied or "")
+    if is_valid_pin(norm) and norm not in used:
+        used.add(norm)
+        return norm
+    return generate_pin(used)
 
 
 @app.post("/api/admin/judges")
 def admin_create_judge(body: JudgeIn, _=Depends(require_admin)):
-    pin = normalize_pin(body.pin) if body.pin else _default_pin_for(body.name)
+    used = {r["pin"] for r in get_conn().execute("SELECT pin FROM judges").fetchall() if r["pin"]}
+    pin = _coerce_pin(body.pin, used)
     with tx() as c:
         jid = insert_returning_id(
             c,
@@ -524,8 +558,12 @@ def admin_update_judge(judge_id: int, body: JudgeIn, _=Depends(require_admin)):
     fields.pop("event_id", None)
     if not fields:
         raise HTTPException(400, "nothing to update")
-    if "pin" in fields and fields["pin"]:
-        fields["pin"] = normalize_pin(fields["pin"])
+    if "pin" in fields:
+        # Empty pin → reset; non-empty must be valid 6-digit numeric and unique.
+        used = {r["pin"] for r in get_conn().execute(
+            "SELECT pin FROM judges WHERE id <> ?", (judge_id,)
+        ).fetchall() if r["pin"]}
+        fields["pin"] = _coerce_pin(fields["pin"], used)
     keys = ", ".join(f"{k} = ?" for k in fields)
     with tx() as c:
         c.execute(f"UPDATE judges SET {keys} WHERE id = ?", (*fields.values(), judge_id))
@@ -545,9 +583,10 @@ def admin_delete_judge(judge_id: int, _=Depends(require_admin)):
 @app.post("/api/admin/judges/import")
 def admin_import_judges(body: JudgesImportIn, _=Depends(require_admin)):
     inserted = 0
+    used = {r["pin"] for r in get_conn().execute("SELECT pin FROM judges").fetchall() if r["pin"]}
     with tx() as c:
         for j in body.judges:
-            pin = normalize_pin(j.pin) if j.pin else _default_pin_for(j.name)
+            pin = _coerce_pin(j.pin, used)
             c.execute(
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
                 (body.event_id, j.name, j.email, j.expertise, pin),

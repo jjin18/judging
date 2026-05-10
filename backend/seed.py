@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database import get_conn, init_db, tx, insert_returning_id
-from auth import normalize_pin
+from auth import generate_pin
 
 
 def seed(wipe: bool = True):
@@ -18,6 +18,7 @@ def seed(wipe: bool = True):
             c.execute("DELETE FROM judges")
             c.execute("DELETE FROM events")
 
+    used_pins: set[str] = set()
     with tx() as c:
         event_id = insert_returning_id(
             c,
@@ -43,18 +44,19 @@ def seed(wipe: bool = True):
             ("Eli Kim",      "eli@example.com",     "Security"),
         ]
         for n, e, x in judges:
+            pin = generate_pin(used_pins)
             insert_returning_id(
                 c,
                 "INSERT INTO judges (event_id, name, email, expertise, pin) VALUES (?, ?, ?, ?, ?)",
-                (event_id, n, e, x, normalize_pin(n)),
+                (event_id, n, e, x, pin),
             )
 
-    print(f"\nSeeded event {event_id}: 10 judges, 0 projects.")
+    print(f"\nSeeded event {event_id}: {len(judges)} judges, 0 projects.")
     print("=" * 56)
     print("  Projects are submitted by teams at /submit")
     print("=" * 56)
-    print("  Dummy judge PINs — type the name on /judge (any case,")
-    print("  with or without spaces; accents and punctuation ignored).")
+    print("  Dummy judge PINs (6-digit numeric, randomly assigned).")
+    print("  Judges enter their PIN at /judge — names no longer log in.")
     print("=" * 56)
     for j in get_conn().execute("SELECT name, pin FROM judges WHERE event_id = ?", (event_id,)):
         print(f"  {j['name']:18s}  PIN: {j['pin']}")
