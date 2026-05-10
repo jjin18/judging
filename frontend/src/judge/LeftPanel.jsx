@@ -1,16 +1,12 @@
 import { useState } from 'react';
-import LetterSection from './LetterSection.jsx';
 import RubricSection from './RubricSection.jsx';
 import ProgressSection from './ProgressSection.jsx';
 
 export default function LeftPanel({ judge, event, projects, scores, activeId, onPick }) {
-  const [open, setOpen] = useState({ letter: true, rubric: false, progress: true });
+  const [open, setOpen] = useState({ rubric: false, progress: true });
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <Section title="Letter" open={open.letter} onToggle={() => toggle('letter')}>
-        <LetterSection judge={judge} event={event} projects={projects} scores={scores} />
-      </Section>
       <Section title="Rubric" open={open.rubric} onToggle={() => toggle('rubric')}>
         <RubricSection />
       </Section>

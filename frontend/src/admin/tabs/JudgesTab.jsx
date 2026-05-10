@@ -42,9 +42,9 @@ export default function JudgesTab({ token, event }) {
   }
 
   async function resetPin(j) {
-    if (!confirm(`Reset ${j.name}'s PIN to their normalized name?`)) return;
-    // Server normalizes; sending the raw name is fine.
-    await adminApi.updateJudge(token, j.id, { event_id: event.id, pin: j.name });
+    if (!confirm(`Issue ${j.name} a new random 6-digit PIN?`)) return;
+    // Empty pin tells the server to allocate a fresh unique 6-digit code.
+    await adminApi.updateJudge(token, j.id, { event_id: event.id, pin: '' });
     refresh();
   }
 
@@ -149,8 +149,8 @@ function QrPreview({ judge, event, onClose }) {
         <div className="text-xs uppercase tracking-wider text-ink-500">{event.name}</div>
         <img src={`/api/admin/judges/${judge.id}/qr?token=${encodeURIComponent(token)}`} alt="QR" className="mx-auto my-4 w-56 h-56" />
         <div className="text-sm">Judge: <b>{judge.name}</b></div>
-        <div className="text-sm font-mono mt-1">Backup PIN: {judge.pin}</div>
-        <div className="text-xs text-ink-500 mt-3">Scan to begin judging →</div>
+        <div className="text-sm font-mono mt-1">PIN: {judge.pin}</div>
+        <div className="text-xs text-ink-500 mt-3">Scan to begin judging — or enter the PIN at /judge.</div>
         <button onClick={onClose} className="mt-4 text-sm rounded-lg border border-ink-300 px-4 py-2 hover:border-accent-500">Close</button>
       </div>
     </div>
