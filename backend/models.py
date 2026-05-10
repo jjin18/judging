@@ -102,10 +102,16 @@ class ScrapeIn(BaseModel):
 
 
 class TeamSubmitIn(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    devpost_url: str = Field(min_length=1)
-    table_number: Optional[str] = None
-    team_name: Optional[str] = None
-    track: Optional[str] = None
-    description: Optional[str] = None
-    event_id: Optional[int] = None  # optional; defaults to most recent event
+    """Submission shape for the Physical AI Hacks form.
+
+    Project title is auto-derived on the server from team_number + description
+    so the judge UI's project list still has a label to show.
+    """
+    team_number: str = Field(min_length=1, max_length=50)
+    robot_arm: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=500)  # one-sentence task
+    github_url: str = Field(min_length=1)
+    x_post_url: str = Field(min_length=1)
+    huggingface_url: Optional[str] = None
+    table_number: str = Field(min_length=1, max_length=50)
+    event_id: Optional[int] = None  # defaults to most recent event

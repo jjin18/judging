@@ -277,6 +277,10 @@ def init_db() -> None:
     conn.executescript(SCHEMA_PG if USE_PG else SCHEMA_SQLITE)
     # Idempotent migrations for already-deployed DBs that pre-date a column.
     _ensure_column(conn, "events", "devpost_url", "TEXT")
+    _ensure_column(conn, "projects", "robot_arm", "TEXT")
+    _ensure_column(conn, "projects", "github_url", "TEXT")
+    _ensure_column(conn, "projects", "x_post_url", "TEXT")
+    _ensure_column(conn, "projects", "huggingface_url", "TEXT")
 
 
 def _ensure_column(conn: Conn, table: str, column: str, decl: str) -> None:
