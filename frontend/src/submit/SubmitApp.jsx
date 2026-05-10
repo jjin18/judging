@@ -52,12 +52,6 @@ export default function SubmitApp() {
     }
   }
 
-  function reset() {
-    setResult(null);
-    // Keep team_name/table_number filled in for second submission from the same team
-    setForm((f) => ({ ...f, title: '', devpost_url: '' }));
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -84,10 +78,13 @@ export default function SubmitApp() {
     <div className="min-h-screen bg-slate-50 px-4 py-6">
       <div className="max-w-lg mx-auto">
         <div className="mb-4"><BackHome /></div>
-        <h1 className="text-2xl font-semibold tracking-tight mb-6 text-center">{event.name}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight mb-2 text-center">{event.name}</h1>
+        <p className="text-center text-sm text-ink-500 mb-6">
+          Only one person per team should submit.
+        </p>
 
         {result ? (
-          <Confirmation project={result} onAddAnother={reset} />
+          <Confirmation project={result} />
         ) : (
           <form onSubmit={submit} className="bg-white rounded-2xl border border-ink-300/60 p-6 space-y-4">
             <Field label="Project name" value={form.title} onChange={(v) => set('title', v)}
@@ -142,7 +139,7 @@ function Field({ label, value, onChange, type = 'text', placeholder, autoFocus, 
   );
 }
 
-function Confirmation({ project, onAddAnother }) {
+function Confirmation({ project }) {
   return (
     <div className="bg-white rounded-2xl border border-ink-300/60 p-6 text-center">
       <div className="inline-flex w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 items-center justify-center mb-3">
@@ -158,12 +155,6 @@ function Confirmation({ project, onAddAnother }) {
         <a href={project.devpost_url} target="_blank" rel="noreferrer"
            className="block truncate text-accent-600 hover:underline pt-1">{project.devpost_url}</a>
       </div>
-      <button
-        onClick={onAddAnother}
-        className="mt-4 w-full rounded-xl border border-ink-300 px-5 py-2.5 text-sm hover:border-accent-500 touch-target"
-      >
-        Submit another
-      </button>
     </div>
   );
 }
