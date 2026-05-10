@@ -524,17 +524,32 @@ def _all_score_rows_for_sync() -> list[dict]:
 
 @app.post("/api/admin/sync-sheets")
 def admin_sync_sheets(_=Depends(require_admin)):
-    """Re-export every score in the DB to the configured Sheet (idempotent).
+    """Re-export every score AND every project to the configured Sheet
+    (idempotent — scores keyed on judge_id+team, submissions keyed on project_id).
 
-    On success, also flips any matching pending_sync rows to 'submitted' so
-    the Backup page's pending count goes to zero.
+    On success, also flips any matching pending_sync score rows to 'submitted'.
     """
     rows = _all_score_rows_for_sync()
     result = sheets_backup.sync_all(rows)
+
+    # Also re-export every project to the submissions tab.
+    projects = [dict(r) for r in get_conn().execute(
+        "SELECT * FROM projects ORDER BY imported_at, id"
+    ).fetchall()]
+    submissions_synced = 0
+    for p in projects:
+        if sheets_backup.mirror_submission_sync(p):
+            submissions_synced += 1
+
     if result.get("ok"):
         with tx() as c:
             c.execute("UPDATE scores SET sync_status = 'submitted' WHERE sync_status = 'pending_sync'")
-    return {"total": len(rows), **result}
+    return {
+        "total": len(rows),
+        "submissions_total": len(projects),
+        "submissions_synced": submissions_synced,
+        **result,
+    }
 
 
 @app.get("/api/admin/backup-status")
