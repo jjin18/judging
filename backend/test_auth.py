@@ -139,6 +139,65 @@ def test_admin_token_rejected_on_judge_route(app_with_seed):
     assert r.status_code == 403
 
 
+def _spin_app_with_admin_env(monkeypatch, tmp_path, admin_env_value):
+    """Reload modules with the requested ADMIN_PASSWORD env state, return TestClient.
+
+    `admin_env_value` is the literal env value, or None to delete the var.
+    """
+    db_path = tmp_path / "adminenv.db"
+    monkeypatch.setenv("DB_PATH", str(db_path))
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    if admin_env_value is None:
+        monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("ADMIN_PASSWORD", admin_env_value)
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    for mod in ("auth", "database", "seed", "sheets_backup", "main"):
+        sys.modules.pop(mod, None)
+    import database  # noqa: E402
+    importlib.reload(database)
+    import auth  # noqa: E402
+    importlib.reload(auth)
+    import sheets_backup  # noqa: E402
+    importlib.reload(sheets_backup)
+    monkeypatch.setattr(sheets_backup, "is_configured", lambda: False)
+    import main  # noqa: E402
+    importlib.reload(main)
+    database.init_db()
+    from fastapi.testclient import TestClient  # noqa: E402
+    return TestClient(main.app), database
+
+
+def test_admin_login_uses_default_when_env_unset(monkeypatch, tmp_path):
+    """ADMIN_PASSWORD env var unset → falls back to PhysicalAIHacks2026!."""
+    client, _ = _spin_app_with_admin_env(monkeypatch, tmp_path, admin_env_value=None)
+    r = client.post("/api/admin/auth", json={"password": "PhysicalAIHacks2026!"})
+    assert r.status_code == 200, r.text
+    assert "token" in r.json()
+    # Wrong password still fails.
+    assert client.post("/api/admin/auth", json={"password": "wrong"}).status_code == 401
+
+
+def test_admin_login_uses_default_when_env_blank(monkeypatch, tmp_path):
+    """ADMIN_PASSWORD set to empty string must also fall back to default —
+    otherwise ops who clear the var on Railway lock themselves out."""
+    client, _ = _spin_app_with_admin_env(monkeypatch, tmp_path, admin_env_value="")
+    r = client.post("/api/admin/auth", json={"password": "PhysicalAIHacks2026!"})
+    assert r.status_code == 200, r.text
+
+
+def test_admin_login_strips_whitespace(monkeypatch, tmp_path):
+    """Trailing newline/whitespace from a copy-paste env value must not lock out."""
+    client, _ = _spin_app_with_admin_env(monkeypatch, tmp_path, admin_env_value="  PhysicalAIHacks2026!  \n")
+    r = client.post("/api/admin/auth", json={"password": "PhysicalAIHacks2026!"})
+    assert r.status_code == 200, r.text
+    # Whitespace on the submitted side is also tolerated.
+    r = client.post("/api/admin/auth", json={"password": " PhysicalAIHacks2026! "})
+    assert r.status_code == 200, r.text
+
+
 def test_admin_password_collision_with_judge_pin_is_rejected(monkeypatch, tmp_path):
     """If ADMIN_PASSWORD is accidentally set to a value that equals a judge PIN,
     `/api/admin/auth` must still fail."""
@@ -206,6 +265,65 @@ def test_score_submit_invokes_sheets_mirror(app_with_seed):
     assert judge["id"] == jid
     assert project["id"] == pid
     assert score["total_weighted"] == pytest.approx(7.5)
+
+
+def test_score_resubmit_upserts_in_place(app_with_seed):
+    """Two submissions for the same (judge, project) → one row, latest values win."""
+    client, calls, database = app_with_seed
+    jid, pin = _judge_pin(database)
+    jt = _judge_token(client, pin)
+    event_id = database.get_conn().execute(
+        "SELECT event_id FROM judges WHERE id = ?", (jid,),
+    ).fetchone()["event_id"]
+    with database.tx() as c:
+        pid = database.insert_returning_id(
+            c, "INSERT INTO projects (event_id, title) VALUES (?, ?)",
+            (event_id, "Same Project"),
+        )
+    headers = {"Authorization": f"Bearer {jt}"}
+    client.post("/api/judge/scores", headers=headers, json={
+        "project_id": pid, "innovation": 1, "technical": 1, "impact": 1, "presentation": 1,
+        "notes": "first",
+    })
+    client.post("/api/judge/scores", headers=headers, json={
+        "project_id": pid, "innovation": 9, "technical": 9, "impact": 9, "presentation": 9,
+        "notes": "updated",
+    })
+    rows = database.get_conn().execute(
+        "SELECT innovation, notes FROM scores WHERE judge_id = ? AND project_id = ?",
+        (jid, pid),
+    ).fetchall()
+    assert len(rows) == 1, "expected exactly one row per (judge, project)"
+    assert rows[0]["innovation"] == 9
+    assert rows[0]["notes"] == "updated"
+
+
+def test_leaderboard_average_uses_distinct_judges(app_with_seed):
+    """Leaderboard average is over distinct (judge, project) pairs only."""
+    client, calls, database = app_with_seed
+    # Two judges, one project. Each judge submits once → average is over both.
+    rows = database.get_conn().execute("SELECT id, pin, event_id FROM judges LIMIT 2").fetchall()
+    assert len(rows) >= 2
+    j1, j2 = rows[0], rows[1]
+    event_id = j1["event_id"]
+    with database.tx() as c:
+        pid = database.insert_returning_id(
+            c, "INSERT INTO projects (event_id, title) VALUES (?, ?)",
+            (event_id, "Avg Test"),
+        )
+    for j, score in [(j1, 4), (j2, 8)]:
+        t = _judge_token(client, j["pin"])
+        client.post("/api/judge/scores",
+                    headers={"Authorization": f"Bearer {t}"},
+                    json={"project_id": pid, "innovation": score, "technical": score,
+                          "impact": score, "presentation": score})
+    at = _admin_token(client)
+    r = client.get(f"/api/admin/leaderboard?event_id={event_id}",
+                   headers={"Authorization": f"Bearer {at}"})
+    assert r.status_code == 200
+    proj = next(p for p in r.json() if p["id"] == pid)
+    assert proj["judge_count"] == 2
+    assert proj["avg_score"] == pytest.approx(6.0)  # (4 + 8) / 2
 
 
 def test_manual_sync_calls_sheets_with_all_rows(app_with_seed):

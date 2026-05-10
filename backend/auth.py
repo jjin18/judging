@@ -49,7 +49,15 @@ def generate_pin(existing: Optional[set[str]] = None) -> str:
 
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-please")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "PhysicalAIHacks2026!")
+
+DEFAULT_ADMIN_PASSWORD = "PhysicalAIHacks2026!"
+# `os.environ.get(name, default)` only uses the default when the var is unset,
+# not when it's set to an empty string. Operators on Railway routinely "clear"
+# the var by saving an empty value — fall back to the hardcoded default in
+# both cases. Strip whitespace so a stray newline from copy-paste doesn't lock
+# everyone out.
+ADMIN_PASSWORD = (os.environ.get("ADMIN_PASSWORD") or "").strip() or DEFAULT_ADMIN_PASSWORD
+
 JUDGE_TOKEN_DAYS = 30
 
 
@@ -77,16 +85,19 @@ def hash_token(token: str) -> str:
 
 
 def verify_password(password: str) -> bool:
-    """Admin password check. Explicitly refuses to authenticate any value that
-    happens to match a judge PIN — defends against an `ADMIN_PASSWORD` that
-    accidentally collides with a judge PIN, or a judge submitting their PIN
-    against the admin login endpoint.
+    """Admin password check. Constant-time, trimmed both sides, never silently
+    truncates. Explicitly refuses any value that also matches a judge PIN —
+    defends against `ADMIN_PASSWORD` accidentally colliding with a judge PIN
+    or a judge submitting their PIN against the admin login endpoint.
     """
     if not password:
         return False
-    if not secrets.compare_digest(password, ADMIN_PASSWORD):
+    submitted = password.strip()
+    if not submitted:
         return False
-    if password in _existing_pins():
+    if not secrets.compare_digest(submitted, ADMIN_PASSWORD):
+        return False
+    if submitted in _existing_pins():
         return False
     return True
 
