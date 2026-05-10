@@ -248,7 +248,7 @@ def team_submit(body: TeamSubmitIn):
     github_url = body.github_url.strip()
     x_post_url = body.x_post_url.strip()
     huggingface_url = (body.huggingface_url or "").strip() or None
-    table_number = body.table_number.strip()
+    table_number = (body.table_number or "").strip() or None
 
     if not team_number:
         raise HTTPException(400, "missing team number")
@@ -262,8 +262,6 @@ def team_submit(body: TeamSubmitIn):
         raise HTTPException(400, "X post link must start with http:// or https://")
     if huggingface_url and not _looks_like_url(huggingface_url):
         raise HTTPException(400, "huggingface link must start with http:// or https://")
-    if not table_number:
-        raise HTTPException(400, "missing table number")
 
     if body.event_id is not None:
         ev_row = get_conn().execute(
@@ -378,7 +376,7 @@ def _judge_bootstrap(judge_id: int, token: str) -> dict:
     event = conn.execute("SELECT * FROM events WHERE id = ?", (judge["event_id"],)).fetchone()
     projects = conn.execute(
         """SELECT * FROM projects WHERE event_id = ?
-           ORDER BY CAST(table_number AS INTEGER), title""",
+           ORDER BY CASE WHEN team_name IS NULL OR team_name = '' THEN 1 ELSE 0 END, LENGTH(team_name), team_name, id""",
         (judge["event_id"],),
     ).fetchall()
     scores = conn.execute("SELECT * FROM scores WHERE judge_id = ?", (judge_id,)).fetchall()
@@ -395,7 +393,7 @@ def _judge_bootstrap(judge_id: int, token: str) -> dict:
 def judge_projects(judge=Depends(require_judge)):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM projects WHERE event_id = ? ORDER BY CAST(table_number AS INTEGER), title",
+        "SELECT * FROM projects WHERE event_id = ? ORDER BY CASE WHEN team_name IS NULL OR team_name = '' THEN 1 ELSE 0 END, LENGTH(team_name), team_name, id",
         (judge["event_id"],),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -633,7 +631,7 @@ def admin_delete_event(event_id: int, _=Depends(require_admin)):
 @app.get("/api/admin/projects")
 def admin_list_projects(event_id: int, _=Depends(require_admin)):
     rows = get_conn().execute(
-        "SELECT * FROM projects WHERE event_id = ? ORDER BY CAST(table_number AS INTEGER), title",
+        "SELECT * FROM projects WHERE event_id = ? ORDER BY CASE WHEN team_name IS NULL OR team_name = '' THEN 1 ELSE 0 END, LENGTH(team_name), team_name, id",
         (event_id,),
     ).fetchall()
     return [dict(r) for r in rows]

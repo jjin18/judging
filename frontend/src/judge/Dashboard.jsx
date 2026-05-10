@@ -29,10 +29,10 @@ export default function Dashboard({ profile, initialProjects, initialScores, onL
 
   const ordered = useMemo(() => {
     return [...projects].sort((a, b) => {
-      const an = parseInt(a.table_number || '99999', 10);
-      const bn = parseInt(b.table_number || '99999', 10);
-      if (an !== bn) return an - bn;
-      return (a.title || '').localeCompare(b.title || '');
+      const an = parseInt(a.team_name || '99999', 10);
+      const bn = parseInt(b.team_name || '99999', 10);
+      if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+      return (a.id ?? 0) - (b.id ?? 0);
     });
   }, [projects]);
 
