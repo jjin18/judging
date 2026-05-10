@@ -3,12 +3,10 @@ import csv
 import io
 import json
 import os
-import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-import qrcode
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,7 +27,6 @@ from scrape_devpost import scrape_event
 import sheets_backup
 
 WEIGHTS = {"innovation": 0.25, "technical": 0.25, "impact": 0.25, "presentation": 0.25}
-FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 
 
 @asynccontextmanager
@@ -778,41 +775,6 @@ def admin_import_judges(body: JudgesImportIn, _=Depends(require_admin)):
     return {"inserted": inserted}
 
 
-def _qr_png(judge_id: int, event_id: int) -> bytes:
-    token = make_judge_token(judge_id, event_id)
-    url = f"{FRONTEND_BASE_URL}/judge?token={token}"
-    img = qrcode.make(url, box_size=8, border=2)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-@app.get("/api/admin/judges/{judge_id}/qr")
-def admin_qr(judge_id: int, _=Depends(require_admin_q)):
-    row = get_conn().execute("SELECT * FROM judges WHERE id = ?", (judge_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "judge not found")
-    png = _qr_png(judge_id, row["event_id"])
-    return Response(content=png, media_type="image/png",
-                    headers={"Content-Disposition": f'inline; filename="qr_{row["name"]}.png"'})
-
-
-@app.get("/api/admin/qr/zip")
-def admin_qr_zip(event_id: int, _=Depends(require_admin_q)):
-    rows = get_conn().execute("SELECT * FROM judges WHERE event_id = ?", (event_id,)).fetchall()
-    if not rows:
-        raise HTTPException(404, "no judges for this event")
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for j in rows:
-            png = _qr_png(j["id"], event_id)
-            safe = "".join(c for c in (j["name"] or "judge") if c.isalnum() or c in "-_") or f"judge_{j['id']}"
-            zf.writestr(f"qr_{safe}_{j['id']}.png", png)
-    buf.seek(0)
-    return Response(content=buf.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="qr_codes_event_{event_id}.zip"'})
-
-
 # ---------- Admin: leaderboard / exports ----------
 def _leaderboard_rows(event_id: int) -> list[dict]:
     rows = get_conn().execute(
@@ -898,18 +860,6 @@ def admin_export_leaderboard_csv(event_id: int, _=Depends(require_admin_q)):
                     round(r["avg_score"], 3), r["judge_count"]])
     return Response(content=out.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="leaderboard_event_{event_id}.csv"'})
-
-
-@app.get("/api/admin/export/luma")
-def admin_export_luma(event_id: int, top: int = Query(10, ge=1, le=100), _=Depends(require_admin_q)):
-    rows = _leaderboard_rows(event_id)[:top]
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(["name", "email", "team", "rank"])
-    for i, r in enumerate(rows, 1):
-        w.writerow([r["title"], "", r["team_name"], i])
-    return Response(content=out.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": f'attachment; filename="luma_top{top}_event_{event_id}.csv"'})
 
 
 # ---------- Static frontend (production build) ----------

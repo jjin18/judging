@@ -132,7 +132,6 @@ DATABASE_URL=...                   # postgresql://… — Railway sets this auto
 GOOGLE_SHEETS_CREDENTIALS_JSON=... # service-account JSON (optional but recommended)
 SHEET_ID=...                       # spreadsheet ID (from the URL)
 SHEET_TAB_NAME=scores              # tab to write to (defaults to "scores")
-FRONTEND_BASE_URL=https://yourapp.com   # used in QR codes
 SKIP_AUTO_SEED=1                   # disable empty-DB auto-seed
 DB_PATH=./judging.db               # only used when DATABASE_URL is unset
 ```
