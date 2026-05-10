@@ -98,8 +98,8 @@ export default function SubmitApp() {
               onChange={(v) => set('table_number', v)} placeholder="14" />
             <Field label="Team name" value={form.team_name}
               onChange={(v) => set('team_name', v)} placeholder="optional" />
-            <Field label="Track" value={form.track}
-              onChange={(v) => set('track', v)} placeholder="optional" />
+            <Field label="Device #" value={form.track}
+              onChange={(v) => set('track', v)} placeholder="e.g. 7" />
 
             {err && <div className="text-sm text-red-600">{err}</div>}
 
