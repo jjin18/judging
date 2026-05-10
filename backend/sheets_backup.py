@@ -25,6 +25,11 @@ from typing import Any, Iterable, Optional
 
 
 HEADER = ["timestamp", "judge_id", "team_or_project", "criterion_scores", "total", "comments"]
+SUBMISSIONS_TAB = "submissions"  # separate tab in the same spreadsheet
+SUBMISSIONS_HEADER = [
+    "timestamp", "project_id", "title", "team_name", "table_number",
+    "device_number", "devpost_url", "event_id",
+]
 _KEY_SEP = " | "  # not a digit, not in JSON output
 
 _lock = threading.Lock()
@@ -244,12 +249,100 @@ def mirror_score(score_row: dict, judge: dict, project: dict) -> None:
     ).start()
 
 
-def mirror_submission(project_row: dict) -> None:
-    """No-op for submissions — only scores go to the Sheet by spec.
+def _format_submission_row(project_row: dict) -> tuple[str, list[Any]]:
+    """Return (sheet_key, row) for a project submission. Keyed on project_id
+    so re-submissions for the same project upsert in place."""
+    project_id = project_row.get("id")
+    timestamp = str(project_row.get("imported_at") or project_row.get("updated_at") or "")
+    if not timestamp:
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    row = [
+        timestamp,
+        project_id,
+        project_row.get("title") or "",
+        project_row.get("team_name") or "",
+        project_row.get("table_number") or "",
+        project_row.get("track") or "",  # "Device #" in the UI
+        project_row.get("devpost_url") or "",
+        project_row.get("event_id") or "",
+    ]
+    return f"submission{_KEY_SEP}{project_id}", row
 
-    Kept as a stub so existing call sites don't need conditional imports.
-    """
-    return None
+
+def _ensure_submissions_header(svc, sheet_id: str) -> None:
+    _ensure_tab_exists(svc, sheet_id, SUBMISSIONS_TAB)
+    rng = f"{SUBMISSIONS_TAB}!A1:H1"
+    res = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
+    if not res.get("values", []):
+        svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=rng,
+            valueInputOption="RAW",
+            body={"values": [SUBMISSIONS_HEADER]},
+        ).execute()
+
+
+def _existing_submission_keys(svc, sheet_id: str) -> dict[str, int]:
+    """Map project_id → row number in the submissions tab."""
+    res = svc.spreadsheets().values().get(
+        spreadsheetId=sheet_id, range=f"{SUBMISSIONS_TAB}!A2:H",
+    ).execute()
+    out: dict[str, int] = {}
+    for i, row in enumerate(res.get("values", []) or [], start=2):
+        if len(row) < 2 or not row[1]:
+            continue
+        out[f"submission{_KEY_SEP}{row[1]}"] = i
+    return out
+
+
+def _do_mirror_submission(project_row: dict) -> bool:
+    """Write a single project row to the submissions tab. Idempotent on project_id."""
+    global _last_success_ts, _last_error
+    if not is_configured():
+        return False
+    try:
+        svc = _build_service()
+        sid = _env_sheet_id()
+        with _lock:
+            _ensure_submissions_header(svc, sid)
+            existing = _existing_submission_keys(svc, sid)
+            key, row = _format_submission_row(project_row)
+            if key in existing:
+                r = existing[key]
+                svc.spreadsheets().values().update(
+                    spreadsheetId=sid,
+                    range=f"{SUBMISSIONS_TAB}!A{r}:H{r}",
+                    valueInputOption="RAW",
+                    body={"values": [row]},
+                ).execute()
+            else:
+                svc.spreadsheets().values().append(
+                    spreadsheetId=sid,
+                    range=f"{SUBMISSIONS_TAB}!A:H",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": [row]},
+                ).execute()
+        _last_success_ts = time.time()
+        _last_error = None
+        return True
+    except Exception as e:
+        _last_error = str(e)
+        print(f"[sheets] submission mirror failed: {e}")
+        return False
+
+
+def mirror_submission_sync(project_row: dict) -> bool:
+    """Synchronous submission mirror to the `submissions` tab. Idempotent on project_id."""
+    return _do_mirror_submission(project_row)
+
+
+def mirror_submission(project_row: dict) -> None:
+    """Fire-and-forget submission mirror. Daemon thread so /api/submit returns
+    instantly while the Sheet write happens in the background."""
+    threading.Thread(
+        target=_do_mirror_submission, args=(project_row,), daemon=True,
+    ).start()
 
 
 def sync_all(rows: Iterable[dict]) -> dict:
