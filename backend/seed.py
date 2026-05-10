@@ -61,7 +61,7 @@ def seed(wipe: bool = True):
     for j in get_conn().execute("SELECT name, pin FROM judges WHERE event_id = ?", (event_id,)):
         print(f"  {j['name']:18s}  PIN: {j['pin']}")
     print("=" * 56)
-    print(f"  Admin password: {__import__('os').environ.get('ADMIN_PASSWORD', 'admin')}")
+    print(f"  Admin password: {__import__('os').environ.get('ADMIN_PASSWORD', 'PhysicalAIHacks2026!')}")
     print("=" * 56)
 
 

@@ -16,7 +16,8 @@ python backend/seed.py              # 1 event + 10 dummy judges
 open http://localhost:5173          # picks up all three routes
 ```
 
-Default admin password: `admin`. Judge PINs are random 6-digit numeric codes
+Default admin password: `PhysicalAIHacks2026!` (override with the
+`ADMIN_PASSWORD` env var). Judge PINs are random 6-digit numeric codes
 allocated at create-time and printed by `seed.py`. Names never log in — judges
 enter their PIN at `/judge`. Admins can read every judge's PIN from the
 **Judges** tab in the admin dashboard.
@@ -94,7 +95,7 @@ To rebuild from the Sheet: download as CSV, run a one-shot import — or just op
 ## Required env
 
 ```
-ADMIN_PASSWORD=...                 # organizer login (default: admin)
+ADMIN_PASSWORD=...                 # organizer login (default: PhysicalAIHacks2026!)
 JWT_SECRET=...                     # signing secret (defaults to a dev secret — change!)
 DATABASE_URL=...                   # postgresql://… — Railway sets this automatically
 GOOGLE_SHEETS_CREDENTIALS_JSON=... # service-account JSON (optional but recommended)
