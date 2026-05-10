@@ -170,9 +170,28 @@ def _upsert_rows(svc, sheet_id: str, tab: str, rows: list[tuple[str, list[Any]]]
     return {"updated": len(updates), "appended": len(appends), "rows": written}
 
 
-def _do_mirror(score: dict, judge: dict, project: dict) -> None:
+_last_success_ts: float | None = None
+_last_error: str | None = None
+
+
+def last_status() -> dict:
+    """Snapshot of the most recent sync result, surfaced on the admin Backup page."""
+    return {
+        "configured": is_configured(),
+        "tab": _env_tab_name() if is_configured() else None,
+        "sheet_url": (
+            f"https://docs.google.com/spreadsheets/d/{_env_sheet_id()}"
+            if _env_sheet_id() else None
+        ),
+        "last_success_ts": _last_success_ts,
+        "last_error": _last_error,
+    }
+
+
+def _do_mirror(score: dict, judge: dict, project: dict) -> bool:
+    global _last_success_ts, _last_error
     if not is_configured():
-        return
+        return False
     try:
         svc = _build_service()
         with _lock:
@@ -180,12 +199,26 @@ def _do_mirror(score: dict, judge: dict, project: dict) -> None:
                 svc, _env_sheet_id(), _env_tab_name(),
                 [_format_row(score, judge, project)],
             )
+        _last_success_ts = time.time()
+        _last_error = None
+        return True
     except Exception as e:
+        _last_error = str(e)
         print(f"[sheets] mirror failed: {e}")
+        return False
+
+
+def mirror_score_sync(score_row: dict, judge: dict, project: dict) -> bool:
+    """Synchronous mirror — caller awaits the Sheets round-trip and gets a
+    True/False back. Use this from request handlers that need to know whether
+    the Sheet was updated before responding."""
+    return _do_mirror(score_row, judge, project)
 
 
 def mirror_score(score_row: dict, judge: dict, project: dict) -> None:
-    """Mirror a score upsert to the Sheet. Runs in a daemon thread; never blocks."""
+    """Fire-and-forget variant. Kept for compatibility with the team
+    submission code path (which doesn't wait on Sheets) and for tests that
+    monkeypatch this name."""
     threading.Thread(
         target=_do_mirror, args=(score_row, judge, project), daemon=True,
     ).start()

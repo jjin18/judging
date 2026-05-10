@@ -17,10 +17,41 @@ open http://localhost:5173          # picks up all three routes
 ```
 
 Default admin password: `PhysicalAIHacks2026!` (override with the
-`ADMIN_PASSWORD` env var). Judge PINs are random 6-digit numeric codes
-allocated at create-time and printed by `seed.py`. Names never log in — judges
-enter their PIN at `/judge`. Admins can read every judge's PIN from the
+`ADMIN_PASSWORD` env var; empty / whitespace-only values fall back to the
+default rather than locking everyone out). The admin token lives in React
+memory only — closing the tab signs you out.
+
+Judge PINs are random 6-digit numeric codes allocated at create-time and
+printed by `seed.py` (20 dummy judges by default). Names never log in;
+judges enter their PIN at `/judge`. The PIN-auth endpoint is rate-limited
+to 10 attempts per minute per IP. The judge token lives in
+`sessionStorage` — closing the tab signs them out, but a refresh inside
+the same tab does not. Admins can read every judge's PIN from the
 **Judges** tab in the admin dashboard.
+
+## Score reliability
+
+Three layers protect every score:
+
+1. **Local autosave on every keystroke.** The score form writes the
+   in-progress values to `localStorage` keyed on `(judge_id, project_id)`.
+   A force-quit / browser kill loses no input. On return, a "Draft
+   restored" badge tells the judge their input came back.
+2. **DB write before "Submitted" appears.** The submit handler writes the
+   row synchronously and only surfaces success once the DB returns OK.
+   The local draft is cleared only after a confirmed server response.
+3. **Sheets sync inside the request.** After the DB write, the handler
+   pushes the row to Google Sheets. Only on success does the row's
+   `sync_status` flip to `submitted`; on failure it stays `pending_sync`,
+   the judge sees "Saved — syncing…", and a background loop replays it
+   automatically. The admin **Backup** tab shows the live Sheet link,
+   last-success timestamp, pending count, and "Retry now" + "Sync all"
+   buttons.
+
+Re-submitting for the same `(judge_id, project_id)` is an upsert in both
+the DB (`UNIQUE` constraint enforces one row per pair) and the Sheet
+(`sync_all` is idempotent). The leaderboard average is over distinct
+judges only.
 
 ## Deployment (Railway, with Postgres + Sheets backup)
 

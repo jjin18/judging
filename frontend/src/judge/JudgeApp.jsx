@@ -15,17 +15,37 @@ export default function JudgeApp() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const profile = await loadProfile();
-      const projects = await loadProjects();
-      const scores = await loadScores();
+      // Authoritative session check: sessionStorage. If empty, the tab was
+      // closed (or this is a new tab) and the judge must re-enter their PIN.
+      // The IndexedDB profile + scores still persist for offline recovery,
+      // but they're never used to skip the PIN screen.
+      const sessionToken = sessionStorage.getItem(LS_TOKEN);
 
-      if (profile?.token && projects?.length) {
-        if (!cancelled) setState({ phase: 'in', profile, projects, scores });
-        startSyncLoop();
-        refreshFromServer(profile.token).catch(() => {});
-        return;
+      if (sessionToken) {
+        // Same tab, possibly after a refresh — hydrate fast from IndexedDB,
+        // then revalidate against the server.
+        const profile = await loadProfile();
+        const projects = await loadProjects();
+        const scores = await loadScores();
+        if (profile?.token === sessionToken && projects?.length) {
+          if (!cancelled) setState({ phase: 'in', profile, projects, scores });
+          startSyncLoop();
+          refreshFromServer(profile.token).catch(() => {});
+          return;
+        }
+        // Token in sessionStorage but no matching profile yet — bootstrap.
+        try {
+          const boot = await judgeApi.authQr(sessionToken);
+          await persistBootstrap(boot);
+          if (!cancelled) setState({ phase: 'in', profile: profileFromBoot(boot), projects: boot.projects, scores: boot.scores });
+          startSyncLoop();
+          return;
+        } catch {
+          sessionStorage.removeItem(LS_TOKEN);
+        }
       }
 
+      // QR code on the URL still works — same tab, scanning a fresh code.
       const qrToken = params.get('token');
       if (qrToken) {
         try {
@@ -36,20 +56,7 @@ export default function JudgeApp() {
           startSyncLoop();
           return;
         } catch {
-          // fall through to login
-        }
-      }
-
-      const lsToken = localStorage.getItem(LS_TOKEN);
-      if (lsToken) {
-        try {
-          const boot = await judgeApi.authQr(lsToken);
-          await persistBootstrap(boot);
-          if (!cancelled) setState({ phase: 'in', profile: profileFromBoot(boot), projects: boot.projects, scores: boot.scores });
-          startSyncLoop();
-          return;
-        } catch {
-          localStorage.removeItem(LS_TOKEN);
+          // fall through to PIN screen
         }
       }
 
@@ -76,7 +83,7 @@ export default function JudgeApp() {
   }
 
   async function onLogout() {
-    localStorage.removeItem(LS_TOKEN);
+    sessionStorage.removeItem(LS_TOKEN);
     await clearProfile();
     setState({ phase: 'out' });
   }
@@ -91,7 +98,9 @@ function profileFromBoot(boot) {
 }
 
 async function persistBootstrap(boot) {
-  localStorage.setItem(LS_TOKEN, boot.token);
+  // sessionStorage, not localStorage: tab close = sign out. Refresh inside
+  // the same tab still finds the token and the judge stays in.
+  sessionStorage.setItem(LS_TOKEN, boot.token);
   await saveProfile(profileFromBoot(boot));
   await saveProjects(boot.projects || []);
   for (const s of (boot.scores || [])) await saveScore(boot.judge.id, { ...s, sync_status: 'synced' });

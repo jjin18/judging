@@ -6,6 +6,10 @@ import { flushQueue } from '../lib/sync.js';
 
 const WEIGHTS = { innovation: 0.25, technical: 0.25, impact: 0.25, presentation: 0.25 };
 
+function draftKey(judgeId, projectId) {
+  return `score.draft.${judgeId}.${projectId}`;
+}
+
 export default function ScoringArea({ token, judgeId, project, indexLabel, onPrev, onNext, onBack, existingScore, onScored, allProjects, onJump }) {
   const initial = existingScore || { innovation: 5, technical: 5, impact: 5, presentation: 5, notes: '' };
   const [innovation, setInnovation] = useState(initial.innovation);
@@ -14,43 +18,117 @@ export default function ScoringArea({ token, judgeId, project, indexLabel, onPre
   const [presentation, setPresentation] = useState(initial.presentation);
   const [notes, setNotes] = useState(initial.notes || '');
   const [busy, setBusy] = useState(false);
-  const [savedFlag, setSavedFlag] = useState(false);
+  // 'idle' | 'submitted' | 'pending_sync' | 'offline' | 'error'
+  const [submitState, setSubmitState] = useState('idle');
+  const [submitError, setSubmitError] = useState('');
+  const [draftRestored, setDraftRestored] = useState(false);
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
 
+  // On project change: try to restore an unsaved draft from localStorage
+  // first; otherwise hydrate from the server-confirmed existingScore.
   useEffect(() => {
-    setInnovation(existingScore?.innovation ?? 5);
-    setTechnical(existingScore?.technical ?? 5);
-    setImpact(existingScore?.impact ?? 5);
-    setPresentation(existingScore?.presentation ?? 5);
-    setNotes(existingScore?.notes ?? '');
-    setSavedFlag(false);
+    setSubmitState('idle');
+    setSubmitError('');
+    setDraftRestored(false);
+    if (!project?.id || !judgeId) return;
+    let restored = false;
+    try {
+      const raw = localStorage.getItem(draftKey(judgeId, project.id));
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d && typeof d === 'object') {
+          setInnovation(d.innovation ?? existingScore?.innovation ?? 5);
+          setTechnical(d.technical ?? existingScore?.technical ?? 5);
+          setImpact(d.impact ?? existingScore?.impact ?? 5);
+          setPresentation(d.presentation ?? existingScore?.presentation ?? 5);
+          setNotes(d.notes ?? existingScore?.notes ?? '');
+          setDraftRestored(true);
+          restored = true;
+        }
+      }
+    } catch {}
+    if (!restored) {
+      setInnovation(existingScore?.innovation ?? 5);
+      setTechnical(existingScore?.technical ?? 5);
+      setImpact(existingScore?.impact ?? 5);
+      setPresentation(existingScore?.presentation ?? 5);
+      setNotes(existingScore?.notes ?? '');
+    }
   }, [project?.id]);
+
+  // Persist every change so a tab crash / browser kill never loses input.
+  useEffect(() => {
+    if (!project?.id || !judgeId) return;
+    try {
+      localStorage.setItem(draftKey(judgeId, project.id), JSON.stringify({
+        innovation, technical, impact, presentation, notes,
+      }));
+    } catch {}
+  }, [judgeId, project?.id, innovation, technical, impact, presentation, notes]);
 
   const raw = innovation + technical + impact + presentation;
   const weighted = innovation * WEIGHTS.innovation + technical * WEIGHTS.technical + impact * WEIGHTS.impact + presentation * WEIGHTS.presentation;
 
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey(judgeId, project.id)); } catch {}
+    setDraftRestored(false);
+  }
+
   async function saveAndNext() {
     if (busy) return;
     setBusy(true);
+    setSubmitError('');
     const body = { project_id: project.id, innovation, technical, impact, presentation, notes };
+
+    // Try direct, synchronous submit first. The server's response tells us
+    // whether the row was also written to Sheets ("submitted") or only the
+    // DB ("pending_sync"). Either way the score is durable in the DB before
+    // we surface success to the judge.
+    let serverScore = null;
+    try {
+      const res = await fetch('/api/judge/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) serverScore = await res.json();
+      else if (res.status >= 400 && res.status < 500) {
+        const text = await res.text().catch(() => '');
+        setSubmitError(text || `Save failed (${res.status})`);
+        setSubmitState('error');
+        setBusy(false);
+        return;  // Keep draft, don't advance.
+      }
+    } catch {
+      // Network unreachable — fall through to offline queue below.
+    }
+
+    if (serverScore) {
+      await saveScore(judgeId, { ...serverScore });
+      onScored?.(serverScore);
+      clearDraft();
+      setSubmitState(serverScore.sync_status === 'submitted' ? 'submitted' : 'pending_sync');
+      setBusy(false);
+      setTimeout(() => onNext?.(), 220);
+      return;
+    }
+
+    // Offline fallback: persist locally + enqueue. Draft stays so a refresh
+    // before the queue flushes still recovers cleanly.
     const optimistic = {
-      judge_id: judgeId,
-      project_id: project.id,
+      judge_id: judgeId, project_id: project.id,
       innovation, technical, impact, presentation,
-      total_raw: raw,
-      total_weighted: weighted,
-      notes,
-      updated_at: new Date().toISOString(),
-      sync_status: 'pending',
+      total_raw: raw, total_weighted: weighted,
+      notes, updated_at: new Date().toISOString(),
+      sync_status: 'pending_sync',
     };
     await saveScore(judgeId, optimistic);
     onScored?.(optimistic);
     await enqueueSync({ token, judgeId, body });
     flushQueue();
-    setSavedFlag(true);
+    setSubmitState('offline');
     setBusy(false);
-    setTimeout(() => onNext?.(), 220);
   }
 
   const filteredHits = useMemo(() => {
@@ -135,6 +213,12 @@ export default function ScoringArea({ token, judgeId, project, indexLabel, onPre
       </div>
 
       <div className="flex-1 px-4 py-5 max-w-3xl mx-auto w-full pb-32">
+        {draftRestored && (
+          <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 inline-flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+            Draft restored — finish and submit to save.
+          </div>
+        )}
         <ProjectCard project={project} />
         <ScoringRubric
           innovation={innovation} setInnovation={setInnovation}
@@ -146,18 +230,30 @@ export default function ScoringArea({ token, judgeId, project, indexLabel, onPre
       </div>
 
       <div className="fixed bottom-0 inset-x-0 z-20 border-t border-ink-300/60 bg-white safe-bottom">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="text-xs leading-tight text-ink-500 shrink-0">
-            <div>Raw: <span className="text-ink-900 font-medium">{raw.toFixed(1)}/40</span></div>
-            <div>Weighted: <span className="text-ink-900 font-medium">{weighted.toFixed(2)}/10</span></div>
+        <div className="max-w-3xl mx-auto px-4 py-3 flex flex-col gap-2">
+          {submitState === 'error' && (
+            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1">
+              {submitError || 'Save failed.'} Your input is saved locally — try again.
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="text-xs leading-tight text-ink-500 shrink-0">
+              <div>Raw: <span className="text-ink-900 font-medium">{raw.toFixed(1)}/40</span></div>
+              <div>Weighted: <span className="text-ink-900 font-medium">{weighted.toFixed(2)}/10</span></div>
+            </div>
+            <button
+              onClick={saveAndNext}
+              disabled={busy}
+              className="ml-auto flex-1 sm:flex-none sm:px-12 py-3 rounded-xl bg-accent-600 text-white font-semibold touch-target hover:bg-accent-500 disabled:opacity-60"
+            >
+              {busy ? 'Saving…'
+                : submitState === 'submitted' ? 'Submitted · Next'
+                : submitState === 'pending_sync' ? 'Saved — syncing…'
+                : submitState === 'offline' ? 'Saved offline · Next'
+                : submitState === 'error' ? 'Retry'
+                : (existingScore ? 'Update & Submit' : 'Submit')}
+            </button>
           </div>
-          <button
-            onClick={saveAndNext}
-            disabled={busy}
-            className="ml-auto flex-1 sm:flex-none sm:px-12 py-3 rounded-xl bg-accent-600 text-white font-semibold touch-target hover:bg-accent-500 disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : (savedFlag ? 'Saved · Next' : (existingScore ? 'Update & Next' : 'Save & Next'))}
-          </button>
         </div>
       </div>
     </div>

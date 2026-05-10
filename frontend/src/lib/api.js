@@ -69,6 +69,8 @@ export const adminApi = {
   scores: (t, eid) => request(`/api/admin/scores?event_id=${eid}`, { headers: H(t) }),
   testSheets: (t) => request('/api/admin/test-sheets-backup', { method: 'POST', headers: H(t) }),
   syncSheets: (t) => request('/api/admin/sync-sheets', { method: 'POST', headers: H(t) }),
+  syncPending: (t) => request('/api/admin/sync-pending', { method: 'POST', headers: H(t) }),
+  backupStatus: (t) => request('/api/admin/backup-status', { headers: H(t) }),
   health: () => request('/api/health'),
 };
 
