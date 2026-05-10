@@ -7,10 +7,10 @@ import JudgesTab from './tabs/JudgesTab.jsx';
 import ResultsTab from './tabs/ResultsTab.jsx';
 import BackHome from '../layout/BackHome.jsx';
 
-const LS_TOKEN = 'admin.token';
-
 export default function AdminApp() {
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
+  // Token lives in memory only — no localStorage. Every reload / new tab
+  // forces a fresh password entry. Closing the tab signs you out.
+  const [token, setToken] = useState('');
   const [events, setEvents] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [tab, setTab] = useState('setup');
@@ -27,13 +27,13 @@ export default function AdminApp() {
         if (rows.length && !activeId) setActiveId(rows[0].id);
       })
       .catch((e) => {
-        if (e.status === 401) { setToken(''); localStorage.removeItem(LS_TOKEN); }
+        if (e.status === 401) setToken('');
         else setError(e.message);
       })
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (!token) return <Login onAuthed={(t) => { localStorage.setItem(LS_TOKEN, t); setToken(t); }} />;
+  if (!token) return <Login onAuthed={(t) => setToken(t)} />;
 
   const active = events.find((e) => e.id === activeId);
 
@@ -57,7 +57,7 @@ export default function AdminApp() {
         setTab('setup');
         setDrawerOpen(false);
       }}
-      onLogout={() => { localStorage.removeItem(LS_TOKEN); setToken(''); }}
+      onLogout={() => setToken('')}
     />
   );
 

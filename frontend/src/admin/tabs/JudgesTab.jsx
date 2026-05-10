@@ -136,13 +136,12 @@ export default function JudgesTab({ token, event }) {
         </table>
       </div>
 
-      {previewQr && <QrPreview judge={previewQr} event={event} onClose={() => setPreviewQr(null)} />}
+      {previewQr && <QrPreview judge={previewQr} event={event} token={token} onClose={() => setPreviewQr(null)} />}
     </div>
   );
 }
 
-function QrPreview({ judge, event, onClose }) {
-  const token = (typeof localStorage !== 'undefined' && localStorage.getItem('admin.token')) || '';
+function QrPreview({ judge, event, token, onClose }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
