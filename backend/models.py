@@ -113,5 +113,5 @@ class TeamSubmitIn(BaseModel):
     github_url: str = Field(min_length=1)
     x_post_url: str = Field(min_length=1)
     huggingface_url: Optional[str] = None
-    table_number: str = Field(min_length=1, max_length=50)
+    table_number: Optional[str] = None  # optional; ordering keys off team_number now
     event_id: Optional[int] = None  # defaults to most recent event

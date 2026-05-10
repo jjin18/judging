@@ -1,7 +1,6 @@
 export default function ProjectCard({ project }) {
   const teamLabel = project.team_name ? `Team ${project.team_name}` : null;
-  const meta = [teamLabel, project.robot_arm, project.table_number ? `table ${project.table_number}` : null]
-    .filter(Boolean).join(' · ');
+  const meta = [teamLabel, project.robot_arm].filter(Boolean).join(' · ');
   return (
     <div className="rounded-2xl bg-white border border-ink-300/60 p-5 mb-5 space-y-3">
       <div>

@@ -14,7 +14,6 @@ export default function SubmitApp() {
     github_url: '',
     x_post_url: '',
     huggingface_url: '',
-    table_number: '',
   });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -41,8 +40,7 @@ export default function SubmitApp() {
     && robotArmValue
     && form.description.trim()
     && form.github_url.trim()
-    && form.x_post_url.trim()
-    && form.table_number.trim();
+    && form.x_post_url.trim();
 
   async function submit(e) {
     e.preventDefault();
@@ -57,7 +55,6 @@ export default function SubmitApp() {
         github_url: form.github_url.trim(),
         x_post_url: form.x_post_url.trim(),
         huggingface_url: form.huggingface_url.trim() || null,
-        table_number: form.table_number.trim(),
       };
       const res = await fetch('/api/submit', {
         method: 'POST',
@@ -142,10 +139,6 @@ export default function SubmitApp() {
               value={form.huggingface_url} onChange={(v) => set('huggingface_url', v)}
               placeholder="https://huggingface.co/datasets/…"
               hint="Optional." />
-
-            <Field label="Table number" mono required
-              value={form.table_number} onChange={(v) => set('table_number', v)}
-              placeholder="14" />
 
             {err && <div className="text-sm text-red-600">{err}</div>}
 
@@ -247,7 +240,7 @@ function Confirmation({ project }) {
       </div>
       <h2 className="text-lg font-semibold">Registered</h2>
       <div className="mt-4 text-left rounded-xl bg-slate-50 border border-ink-300/60 p-4 text-sm space-y-1">
-        <div><b>Team {project.team_name}</b>{project.table_number ? ` · table ${project.table_number}` : ''}</div>
+        <div><b>Team {project.team_name}</b></div>
         {project.robot_arm && <div className="text-ink-500">{project.robot_arm}</div>}
         {project.description && <div className="text-ink-700 italic">"{project.description}"</div>}
         {project.github_url && (
