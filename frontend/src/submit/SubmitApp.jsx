@@ -94,18 +94,25 @@ export default function SubmitApp() {
               autoFocus required placeholder="Wayfinder" />
             <Field label="Devpost link" value={form.devpost_url} onChange={(v) => set('devpost_url', v)}
               type="url" required placeholder="https://devpost.com/software/..." />
-            <Field label="Table number" mono value={form.table_number}
+            <Field label="Table number" mono required value={form.table_number}
               onChange={(v) => set('table_number', v)} placeholder="14" />
-            <Field label="Team name" value={form.team_name}
-              onChange={(v) => set('team_name', v)} placeholder="optional" />
-            <Field label="Device #" value={form.track}
+            <Field label="Team name" required value={form.team_name}
+              onChange={(v) => set('team_name', v)} placeholder="The Wayfinders" />
+            <Field label="Device #" required value={form.track}
               onChange={(v) => set('track', v)} placeholder="e.g. 7" />
 
             {err && <div className="text-sm text-red-600">{err}</div>}
 
             <button
               type="submit"
-              disabled={busy || !form.title.trim() || !form.devpost_url.trim()}
+              disabled={
+                busy
+                || !form.title.trim()
+                || !form.devpost_url.trim()
+                || !form.table_number.trim()
+                || !form.team_name.trim()
+                || !form.track.trim()
+              }
               className="w-full rounded-xl bg-ink-900 text-white py-3 font-medium hover:bg-ink-700 disabled:opacity-40 touch-target"
             >
               {busy ? 'Registering…' : 'Register'}

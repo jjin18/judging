@@ -243,12 +243,21 @@ def team_submit(body: TeamSubmitIn):
     """
     title = (body.title or "").strip()
     devpost = (body.devpost_url or "").strip()
+    table = (body.table_number or "").strip()
+    team = (body.team_name or "").strip()
+    track = (body.track or "").strip()
     if not title:
         raise HTTPException(400, "missing project title")
     if not devpost:
         raise HTTPException(400, "missing Devpost link")
     if not (devpost.startswith("http://") or devpost.startswith("https://")):
         raise HTTPException(400, "devpost link must start with http:// or https://")
+    if not table:
+        raise HTTPException(400, "missing table number")
+    if not team:
+        raise HTTPException(400, "missing team name")
+    if not track:
+        raise HTTPException(400, "missing device number")
 
     if body.event_id is not None:
         ev_row = get_conn().execute(
@@ -263,9 +272,6 @@ def team_submit(body: TeamSubmitIn):
             raise HTTPException(404, "no event open for submissions")
         eid = ev["id"]
 
-    table = (body.table_number or "").strip() or None
-    team = (body.team_name or "").strip() or None
-    track = (body.track or "").strip() or None
     desc = (body.description or "").strip() or None
 
     with tx() as c:
