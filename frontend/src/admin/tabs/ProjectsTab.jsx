@@ -235,7 +235,7 @@ function ProjectsTable({ projects, onPatch, onDelete }) {
             <th className="text-left px-3 py-2 w-20">Table</th>
             <th className="text-left px-3 py-2">Project</th>
             <th className="text-left px-3 py-2">Team</th>
-            <th className="text-left px-3 py-2 w-32">Track</th>
+            <th className="text-left px-3 py-2 w-32">Device #</th>
             <th className="text-right px-4 py-2 w-32">Actions</th>
           </tr>
         </thead>
