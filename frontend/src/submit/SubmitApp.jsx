@@ -40,7 +40,8 @@ export default function SubmitApp() {
     && robotArmValue
     && form.description.trim()
     && form.github_url.trim()
-    && form.x_post_url.trim();
+    && form.x_post_url.trim()
+    && form.huggingface_url.trim();
 
   async function submit(e) {
     e.preventDefault();
@@ -135,10 +136,9 @@ export default function SubmitApp() {
               placeholder="https://x.com/your-handle/status/…"
               hint="Include #SFPhysicalAIHacks and @makermodsai in your post." />
 
-            <Field label="Hugging Face dataset link" type="url"
+            <Field label="Hugging Face dataset link" required type="url"
               value={form.huggingface_url} onChange={(v) => set('huggingface_url', v)}
-              placeholder="https://huggingface.co/datasets/…"
-              hint="Optional." />
+              placeholder="https://huggingface.co/datasets/…" />
 
             {err && <div className="text-sm text-red-600">{err}</div>}
 

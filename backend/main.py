@@ -247,7 +247,7 @@ def team_submit(body: TeamSubmitIn):
     description = body.description.strip()
     github_url = body.github_url.strip()
     x_post_url = body.x_post_url.strip()
-    huggingface_url = (body.huggingface_url or "").strip() or None
+    huggingface_url = body.huggingface_url.strip()
     table_number = (body.table_number or "").strip() or None
 
     if not team_number:
@@ -260,8 +260,8 @@ def team_submit(body: TeamSubmitIn):
         raise HTTPException(400, "github link must start with http:// or https://")
     if not x_post_url or not _looks_like_url(x_post_url):
         raise HTTPException(400, "X post link must start with http:// or https://")
-    if huggingface_url and not _looks_like_url(huggingface_url):
-        raise HTTPException(400, "huggingface link must start with http:// or https://")
+    if not huggingface_url or not _looks_like_url(huggingface_url):
+        raise HTTPException(400, "Hugging Face link must start with http:// or https://")
 
     if body.event_id is not None:
         ev_row = get_conn().execute(
