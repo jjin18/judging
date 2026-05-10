@@ -14,7 +14,7 @@ export default function AdminApp() {
   const [token, setToken] = useState('');
   const [events, setEvents] = useState([]);
   const [activeId, setActiveId] = useState(null);
-  const [tab, setTab] = useState('setup');
+  const [tab, setTab] = useState('projects');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -55,7 +55,7 @@ export default function AdminApp() {
         if (!name) return;
         const ev = await adminApi.createEvent(token, { name });
         await refreshEvents(ev.id);
-        setTab('setup');
+        setTab('projects');
         setDrawerOpen(false);
       }}
       onLogout={() => setToken('')}
@@ -98,7 +98,6 @@ export default function AdminApp() {
               </div>
               <nav className="mt-4 flex gap-1 -mx-1 overflow-x-auto scrollbar-thin">
                 {[
-                  ['setup', 'Setup'],
                   ['projects', 'Projects'],
                   ['judges', 'Judges'],
                   ['results', 'Results'],
